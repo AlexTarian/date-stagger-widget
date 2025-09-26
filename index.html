@@ -49,7 +49,7 @@
 <body>
   <div class="widget" id="widget">
     <header>
-      <h1>Staggered Arrivals (v7)</h1>
+      <h1>Staggered Arrivals (v8)</h1>
       <div class="meta" id="jobMeta">Start — End • 0 workers</div>
     </header>
     <div class="content">
@@ -68,6 +68,13 @@
         <div class="stack">
           <button class="btn primary" id="addRowBtn" type="button">+ Add arrival</button>
           <span class="hint">Minimum 2 rows. No max.</span>
+        </div>
+        <!-- Debug: what the widget is receiving -->
+        <div id="debug-params" style="margin-top:12px; padding:10px; border:1px solid #ddd; border-radius:8px; background:#f8fafc; font:12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#0f172a;">
+          <div><strong>Widget settings</strong> → <span id="dbg-settings">{}</span></div>
+          <div><strong>values.keys</strong> → <span id="dbg-keys">[]</span></div>
+          <div><strong>Resolved</strong> → start=<span id="dbg-start">(none)</span> &nbsp; end=<span id="dbg-end">(none)</span> &nbsp; total=<span id="dbg-total">(none)</span></div>
+          <div id="dbg-note" style="margin-top:6px;color:#475569;">(This panel is for debugging only; you can remove it later.)</div>
         </div>
         <div class="stack">
           <span class="pill">Total selected: <strong id="totalSelected">0</strong></span>
@@ -323,95 +330,96 @@
 
   // Jotform integration (supports getWidgetSettings or requestSettings) + polling
   function tryBindJotform() {
+    // helpers to write into the on-page debug panel
+    const setText = (id, v) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+    };
+    const showResolved = (vals) => {
+      document.getElementById('dbg-start')?.replaceChildren(document.createTextNode(vals.startDate ?? '(none)'));
+      document.getElementById('dbg-end')?.replaceChildren(document.createTextNode(vals.endDate ?? '(none)'));
+      document.getElementById('dbg-total')?.replaceChildren(document.createTextNode(String(vals.totalWorkers ?? '(none)')));
+    };
+  
     if (!window.JFCustomWidget) {
-      dlog('JFCustomWidget missing → running standalone (query params only).');
+      setText('dbg-settings', '(no JFCustomWidget, running standalone)');
+      setText('dbg-keys', '[]');
+      showResolved({ startDate: state.startDate, endDate: state.endDate, totalWorkers: state.totalWorkers });
       return false;
     }
-    const JF = window.JFCustomWidget;
-    dlog('JFCustomWidget detected.');
   
-    // Get settings via either API and log what we get
+    const JF = window.JFCustomWidget;
+  
+    // settings via either API
     function getSettings(cb){
       try {
-        if (typeof JF.getWidgetSettings === 'function') {
-          return JF.getWidgetSettings((s)=>{ dlog('settings via getWidgetSettings', s); decho('settings', s); cb(s || {}); });
-        }
-        if (typeof JF.requestSettings === 'function') {
-          return JF.requestSettings((s)=>{ dlog('settings via requestSettings', s); decho('settings', s); cb(s || {}); });
-        }
-      } catch(e) { derr('settings error', e); }
-      dlog('settings fallback {}');
+        if (typeof JF.getWidgetSettings === 'function')
+          return JF.getWidgetSettings((s)=>{ setText('dbg-settings', s||{}); cb(s||{}); });
+        if (typeof JF.requestSettings === 'function')
+          return JF.requestSettings((s)=>{ setText('dbg-settings', s||{}); cb(s||{}); });
+      } catch { /* ignore */ }
+      setText('dbg-settings', {});
       cb({});
     }
   
-    // Normalize Jotform values; logs raw values + keys and the resolved picks
+    // normalize host field values and update debug panel
     function readHostValues(settings, cb){
       JF.getFieldsValue(function(values){
-        dlog('raw values', values);
-        decho('values.keys', Object.keys(values || {}));
-  
-        const sKey = settings.startFieldId;
-        const eKey = settings.endFieldId;
-        const nKey = settings.totalWorkersFieldId;
+        setText('dbg-keys', Object.keys(values||{}));
   
         const pick = (key) => {
-          if (!key) return undefined;
+          if (!key && key !== 0) return undefined;
           const candidates = [ String(key), `input_${key}`, `q${key}` ];
           for (const c of candidates) {
             if (Object.prototype.hasOwnProperty.call(values, c)) {
               const v = values[c];
-              dlog('pick hit', { key, candidate: c, value: v });
               return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
             }
           }
-          // last-resort: direct match on unique name (case-insensitive)
+          // last resort: try exact unique name match (case-insensitive)
           const lower = String(key).toLowerCase();
-          for (const k of Object.keys(values)) {
+          for (const k of Object.keys(values||{})) {
             if (k.toLowerCase() === lower) {
               const v = values[k];
-              dlog('pick uniqueName hit', { key, candidate: k, value: v });
               return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
             }
           }
-          dlog('pick miss', { key, tried: candidates });
           return undefined;
         };
   
-        const startDate = pick(sKey);
-        const endDate   = pick(eKey);
-        const twRaw     = pick(nKey);
+        const sId = settings.startFieldId;
+        const eId = settings.endFieldId;
+        const nId = settings.totalWorkersFieldId;
+  
+        const startDate = pick(sId);
+        const endDate   = pick(eId);
+        const twRaw     = pick(nId);
         const totalWorkers = (twRaw != null && twRaw !== '') ? Number(twRaw) : undefined;
   
         const resolved = { startDate, endDate, totalWorkers };
-        dlog('resolved params', resolved);
-        decho('resolved', resolved);
-  
+        showResolved(resolved);
         cb(resolved);
       });
     }
   
     function pushValue(valid, message) {
-      try {
-        JF.sendData({ value: JSON.stringify(serialize()), valid, message: message || '' });
-        dlog('sendData', { valid, message });
-      } catch (e) { derr('sendData error', e); }
+      try { JF.sendData({ value: JSON.stringify(serialize()), valid, message: message || '' }); }
+      catch { /* ignore */ }
     }
     window.sendValue = ({ valid, message }) => pushValue(valid, message);
   
-    // Initial boot
+    // initial boot
     JF.subscribe('ready', function(){
-      dlog('JF → ready');
       getSettings(function(settings){
         readHostValues(settings, function(vals){
-          dlog('boot with', vals);
-          decho('boot', vals);
           boot(vals);
           pushValue(validate().length === 0);
         });
       });
     });
   
-    // Live sync every 800ms; log changes
+    // re-sync every 800ms so edits to host fields are picked up
     let last = { startDate: undefined, endDate: undefined, totalWorkers: undefined };
     const sync = () => {
       getSettings(function(settings){
@@ -421,8 +429,6 @@
             vals.endDate   !== last.endDate   ||
             Number(vals.totalWorkers || 0) !== Number(last.totalWorkers || 0);
           if (changed) {
-            dlog('sync change', { from: last, to: vals });
-            decho('sync change', { from: last, to: vals });
             last = { ...vals };
             setBounds(vals);
           }
@@ -431,16 +437,16 @@
     };
     const syncInterval = setInterval(sync, 800);
   
-    // Validate on submit
+    // validate on submit
     JF.subscribe('submit', function(){
-      dlog('JF → submit');
       const errs = validate();
       pushValue(errs.length === 0, errs[0] || '');
-      try { clearInterval(syncInterval); } catch(_) {}
+      try { clearInterval(syncInterval); } catch {}
     });
   
     return true;
   }
+
 
   // Default sendValue for standalone
   window.sendValue = ({ valid, message }) => { /* no-op in standalone */ };
@@ -454,6 +460,7 @@
 </script>
 </body>
 </html>
+
 
 
 
