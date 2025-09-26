@@ -50,7 +50,7 @@
 <body>
   <div class="widget" id="widget">
     <header>
-      <h1>Staggered Arrivals (v11)</h1>
+      <h1>Staggered Arrivals (v12)</h1>
       <div class="meta" id="jobMeta">Start — End • 0 workers</div>
     </header>
     <div class="content">
@@ -313,95 +313,56 @@
     function tryBindJotform() {
       if (!window.JFCustomWidget) return false;
       const JF = window.JFCustomWidget;
-  
-      // get settings via either API
+    
       function getSettings(cb){
         try {
           if (typeof JF.getWidgetSettings === 'function') return JF.getWidgetSettings(s => cb(s || {}));
           if (typeof JF.requestSettings === 'function')    return JF.requestSettings(s => cb(s || {}));
-        } catch { cb({}); }
+        } catch (_) { /* ignore */ }
         cb({});
       }
-  
-      // read initial host values once
+    
       function readHostValues(settings, cb){
         JF.getFieldsValue(function(values){
-          const pick = (key) => {
-            if (!key && key !== 0) return undefined;
-            const candidates = [ String(key), `input_${key}`, `q${key}` ];
-            for (const c of candidates) {
-              if (Object.prototype.hasOwnProperty.call(values, c)) {
-                const v = values[c];
-                return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
-              }
-            }
-            // last-resort: unique name exact match (case-insensitive)
-            const lower = String(key).toLowerCase();
-            for (const k of Object.keys(values || {})) {
-              if (k.toLowerCase() === lower) {
-                const v = values[k];
-                return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
-              }
-            }
-            return undefined;
-          };
-  
-          const sId = settings.startFieldId, eId = settings.endFieldId, nId = settings.totalWorkersFieldId;
-          const startDate = pick(sId);
-          const endDate   = pick(eId);
-          const twRaw     = pick(nId);
+          const sId = settings.startFieldId;
+          const eId = settings.endFieldId;
+          const nId = settings.totalWorkersFieldId;
+          const startDate = pickFromValues(values, sId);
+          const endDate   = pickFromValues(values, eId);
+          const twRaw     = pickFromValues(values, nId);
           const totalWorkers = (twRaw != null && twRaw !== '') ? Number(twRaw) : undefined;
           cb({ startDate, endDate, totalWorkers });
         });
       }
-  
-      // attach listeners to host fields (change + keyup)
-      function addHostFieldListeners(settings) {
-        const toDomKey = (k) => {
-          if (k == null) return null;
-          const s = String(k).trim();
-          return /^\d+$/.test(s) ? `input_${s}` : s; // numeric QID → input_#, else use unique name
-        };
-        const startKey = toDomKey(settings.startFieldId);
-        const endKey   = toDomKey(settings.endFieldId);
-        const totKey   = toDomKey(settings.totalWorkersFieldId);
-  
-        const attach = (key, handler) => {
-          if (!key) return;
-          try {
-            JF.listenFromField(key, 'change', handler);
-            JF.listenFromField(key, 'keyup',  handler);
-          } catch { /* ignore */ }
-        };
-  
-        attach(startKey, (val) => setBounds({ startDate: val }));
-        attach(endKey,   (val) => setBounds({ endDate: val }));
-        attach(totKey,   (val) => setBounds({ totalWorkers: val }));
-      }
-  
+    
       function pushValue(valid, message) {
-        try { JF.sendData({ value: JSON.stringify(serialize()), valid, message: message || '' }); }
-        catch { /* ignore */ }
+        try { JF.sendData({ value: JSON.stringify(serialize()), valid, message: message || '' }); } catch (_){}
       }
       window.sendValue = ({ valid, message }) => pushValue(valid, message);
-  
-      // initial boot + listeners
+    
+      // Initial boot + listeners
       JF.subscribe('ready', function(){
         getSettings(function(settings){
-          addHostFieldListeners(settings);       // live changes
-          readHostValues(settings, function(v){  // initial values
-            boot(v);
+    
+          // Live listeners (handle changes instantly)
+          attachListeners(JF, settings.startFieldId, (val) => setBounds({ startDate: val }));
+          attachListeners(JF, settings.endFieldId,   (val) => setBounds({ endDate: val }));
+          attachListeners(JF, settings.totalWorkersFieldId, (val) => setBounds({ totalWorkers: val }));
+    
+          // Initial values
+          readHostValues(settings, function(vals){
+            boot(vals);
             pushValue(validate().length === 0);
           });
         });
       });
-  
-      // validate on submit
+    
+      // Validate on submit
       JF.subscribe('submit', function(){
         const errs = validate();
         pushValue(errs.length === 0, errs[0] || '');
       });
-  
+    
       return true;
     }
   
@@ -414,9 +375,71 @@
       const qc = readQueryConfig();
       boot(qc || { startDate: '', endDate: '', totalWorkers: 0 });
     }
+
+    // Normalize whatever the user typed (QID/unique-name/DOM-ish) into:
+    // - candidates we try in getFieldsValue()
+    // - keys we listen to with listenFromField()
+    function normalizeFieldKey(raw) {
+      if (raw == null) return { lookup: [], listen: [] };
+      let s = String(raw).trim();
+    
+      // Strip leading '#' and trailing '_pick' (Jotform date pickers)
+      if (s.startsWith('#')) s = s.slice(1);
+      s = s.replace(/_pick$/i, '');
+    
+      // Pure number? That's the question ID. Jotform usually uses input_<QID>.
+      if (/^\d+$/.test(s)) {
+        const qid = s;
+        return {
+          lookup: [qid, `input_${qid}`, `q${qid}`], // shapes we may see in getFieldsValue()
+          listen: [`input_${qid}`]                  // event source for listenFromField
+        };
+      }
+    
+      // If it's input_### already, derive the numeric variants too
+      const m = s.match(/^input_(\d+)$/);
+      if (m) {
+        const qid = m[1];
+        return {
+          lookup: [qid, s, `q${qid}`],
+          listen: [s]
+        };
+      }
+    
+      // Otherwise treat as unique name
+      return {
+        lookup: [s],    // getFieldsValue may expose by unique name
+        listen: [s]     // listen by unique name
+      };
+    }
+    
+    // Use this to read initial values
+    function pickFromValues(values, rawKey) {
+      const { lookup } = normalizeFieldKey(rawKey);
+      for (const k of lookup) {
+        if (Object.prototype.hasOwnProperty.call(values, k)) {
+          const v = values[k];
+          return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+        }
+      }
+      return undefined;
+    }
+    
+    // Use this to wire listeners
+    function attachListeners(JF, rawKey, handler) {
+      const { listen } = normalizeFieldKey(rawKey);
+      for (const key of listen) {
+        try {
+          JF.listenFromField(key, 'change', handler);
+          JF.listenFromField(key, 'keyup',  handler);
+        } catch (_) {}
+      }
+    }
+
   </script>
 </body>
 </html>
+
 
 
 
