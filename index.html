@@ -49,7 +49,7 @@
 <body>
   <div class="widget" id="widget">
     <header>
-      <h1>Staggered Arrivals (v6)</h1>
+      <h1>Staggered Arrivals (v7)</h1>
       <div class="meta" id="jobMeta">Start — End • 0 workers</div>
     </header>
     <div class="content">
@@ -301,85 +301,79 @@
     return null;
   }
 
-  // --- add once near top of your script ---
+  // === Debug helpers (add near top, only once)
   const DEBUG = /[?&]debug=1\b/.test(location.search);
+  function dlog(...args) { if (DEBUG) console.log('[ArrivalWidget]', ...args); }
+  function derr(...args) { if (DEBUG) console.error('[ArrivalWidget]', ...args); }
   
   function makeDebugPanel() {
-    const box = document.createElement('div');
-    box.id = 'debugPanel';
-    box.style.cssText = `
-      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      background:#0f172a; color:#e2e8f0; padding:10px; border-radius:8px;
-      border:1px solid #1f2937; margin-top:12px; white-space:pre-wrap; max-height:220px; overflow:auto;
-    `;
-    const h = document.createElement('div');
-    h.textContent = 'DEBUG';
-    h.style.cssText = 'font-weight:700;margin-bottom:6px;color:#93c5fd;';
-    const pre = document.createElement('div');
-    pre.id = 'debugLog';
-    box.appendChild(h); box.appendChild(pre);
-    const host = document.querySelector('.content') || document.body;
-    host.appendChild(box);
+    if (!DEBUG || document.getElementById('arrival-debug')) return;
+    const box = document.createElement('pre');
+    box.id = 'arrival-debug';
+    box.style.cssText = 'font:12px ui-monospace,monospace; background:#111; color:#9ef; padding:8px; border-radius:8px; max-height:240px; overflow:auto; margin-top:10px;';
+    (document.querySelector('.content') || document.body).appendChild(box);
   }
-  function dlog(obj) {
+  function decho(label, obj) {
     if (!DEBUG) return;
-    const pre = document.getElementById('debugLog');
-    const line = (typeof obj === 'string') ? obj : JSON.stringify(obj, null, 2);
-    pre.textContent += (pre.textContent ? '\n' : '') + line;
-    console.log('[WIDGET]', obj);
+    makeDebugPanel();
+    const el = document.getElementById('arrival-debug');
+    const line = `${label}: ${typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2)}`;
+    el.textContent += (el.textContent ? '\n' : '') + line;
   }
-  // --- end add-on ---  
 
   // Jotform integration (supports getWidgetSettings or requestSettings) + polling
   function tryBindJotform() {
     if (!window.JFCustomWidget) {
-      if (DEBUG) {
-        makeDebugPanel();
-        dlog('JFCustomWidget missing → running standalone mode');
-      }
+      dlog('JFCustomWidget missing → running standalone (query params only).');
       return false;
     }
     const JF = window.JFCustomWidget;
-    if (DEBUG) { makeDebugPanel(); dlog('JFCustomWidget detected ✅'); }
+    dlog('JFCustomWidget detected.');
   
-    // Get settings via either API
+    // Get settings via either API and log what we get
     function getSettings(cb){
       try {
-        if (typeof JF.getWidgetSettings === 'function') return JF.getWidgetSettings((s)=>{ dlog({settings_from:'getWidgetSettings', settings:s}); cb(s); });
-        if (typeof JF.requestSettings === 'function')    return JF.requestSettings((s)=>{ dlog({settings_from:'requestSettings', settings:s}); cb(s); });
-      } catch(e) { dlog({error:'settings', e:String(e)}); }
-      dlog('settings fallback → {}'); cb({});
+        if (typeof JF.getWidgetSettings === 'function') {
+          return JF.getWidgetSettings((s)=>{ dlog('settings via getWidgetSettings', s); decho('settings', s); cb(s || {}); });
+        }
+        if (typeof JF.requestSettings === 'function') {
+          return JF.requestSettings((s)=>{ dlog('settings via requestSettings', s); decho('settings', s); cb(s || {}); });
+        }
+      } catch(e) { derr('settings error', e); }
+      dlog('settings fallback {}');
+      cb({});
     }
-    // Read host field values, robust against shape/key variants
+  
+    // Normalize Jotform values; logs raw values + keys and the resolved picks
     function readHostValues(settings, cb){
       JF.getFieldsValue(function(values){
-        dlog({ raw_values: values });
-  
-        // list keys present so we can match
-        dlog({ values_keys: Object.keys(values || {}) });
+        dlog('raw values', values);
+        decho('values.keys', Object.keys(values || {}));
   
         const sKey = settings.startFieldId;
         const eKey = settings.endFieldId;
         const nKey = settings.totalWorkersFieldId;
   
-        // Helper that tries several variants. Also accepts non-numeric "unique name".
         const pick = (key) => {
           if (!key) return undefined;
-          const candidates = [ key, `input_${key}`, `q${key}` ];
+          const candidates = [ String(key), `input_${key}`, `q${key}` ];
           for (const c of candidates) {
-            if (values.hasOwnProperty(c)) {
+            if (Object.prototype.hasOwnProperty.call(values, c)) {
               const v = values[c];
+              dlog('pick hit', { key, candidate: c, value: v });
               return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
             }
           }
-          // Try a last-resort scan by case-insensitive match on key name
+          // last-resort: direct match on unique name (case-insensitive)
           const lower = String(key).toLowerCase();
           for (const k of Object.keys(values)) {
             if (k.toLowerCase() === lower) {
               const v = values[k];
+              dlog('pick uniqueName hit', { key, candidate: k, value: v });
               return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
             }
           }
+          dlog('pick miss', { key, tried: candidates });
           return undefined;
         };
   
@@ -389,16 +383,18 @@
         const totalWorkers = (twRaw != null && twRaw !== '') ? Number(twRaw) : undefined;
   
         const resolved = { startDate, endDate, totalWorkers };
-        dlog({ resolved_params: resolved });
+        dlog('resolved params', resolved);
+        decho('resolved', resolved);
   
         cb(resolved);
       });
     }
-
+  
     function pushValue(valid, message) {
       try {
         JF.sendData({ value: JSON.stringify(serialize()), valid, message: message || '' });
-      } catch (e) { dlog({error:'sendData', e:String(e)}); }
+        dlog('sendData', { valid, message });
+      } catch (e) { derr('sendData error', e); }
     }
     window.sendValue = ({ valid, message }) => pushValue(valid, message);
   
@@ -407,14 +403,15 @@
       dlog('JF → ready');
       getSettings(function(settings){
         readHostValues(settings, function(vals){
-          dlog('boot() with host values');
+          dlog('boot with', vals);
+          decho('boot', vals);
           boot(vals);
           pushValue(validate().length === 0);
         });
       });
     });
-
-    // Live sync every 800ms (shows diffs in debug)
+  
+    // Live sync every 800ms; log changes
     let last = { startDate: undefined, endDate: undefined, totalWorkers: undefined };
     const sync = () => {
       getSettings(function(settings){
@@ -424,7 +421,8 @@
             vals.endDate   !== last.endDate   ||
             Number(vals.totalWorkers || 0) !== Number(last.totalWorkers || 0);
           if (changed) {
-            dlog({ sync_change_from: last, to: vals });
+            dlog('sync change', { from: last, to: vals });
+            decho('sync change', { from: last, to: vals });
             last = { ...vals };
             setBounds(vals);
           }
@@ -432,7 +430,7 @@
       });
     };
     const syncInterval = setInterval(sync, 800);
-
+  
     // Validate on submit
     JF.subscribe('submit', function(){
       dlog('JF → submit');
@@ -456,6 +454,7 @@
 </script>
 </body>
 </html>
+
 
 
 
