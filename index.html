@@ -301,65 +301,120 @@
     return null;
   }
 
+  // --- add once near top of your script ---
+  const DEBUG = /[?&]debug=1\b/.test(location.search);
+  
+  function makeDebugPanel() {
+    const box = document.createElement('div');
+    box.id = 'debugPanel';
+    box.style.cssText = `
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background:#0f172a; color:#e2e8f0; padding:10px; border-radius:8px;
+      border:1px solid #1f2937; margin-top:12px; white-space:pre-wrap; max-height:220px; overflow:auto;
+    `;
+    const h = document.createElement('div');
+    h.textContent = 'DEBUG';
+    h.style.cssText = 'font-weight:700;margin-bottom:6px;color:#93c5fd;';
+    const pre = document.createElement('div');
+    pre.id = 'debugLog';
+    box.appendChild(h); box.appendChild(pre);
+    const host = document.querySelector('.content') || document.body;
+    host.appendChild(box);
+  }
+  function dlog(obj) {
+    if (!DEBUG) return;
+    const pre = document.getElementById('debugLog');
+    const line = (typeof obj === 'string') ? obj : JSON.stringify(obj, null, 2);
+    pre.textContent += (pre.textContent ? '\n' : '') + line;
+    console.log('[WIDGET]', obj);
+  }
+  // --- end add-on ---  
+
   // Jotform integration (supports getWidgetSettings or requestSettings) + polling
   function tryBindJotform() {
-    if (!window.JFCustomWidget) return false;
+    if (!window.JFCustomWidget) {
+      if (DEBUG) {
+        makeDebugPanel();
+        dlog('JFCustomWidget missing → running standalone mode');
+      }
+      return false;
+    }
     const JF = window.JFCustomWidget;
-
+    if (DEBUG) { makeDebugPanel(); dlog('JFCustomWidget detected ✅'); }
+  
+    // Get settings via either API
     function getSettings(cb){
       try {
-        if (typeof JF.getWidgetSettings === 'function') return JF.getWidgetSettings(cb);
-        if (typeof JF.requestSettings === 'function')    return JF.requestSettings(cb);
-      } catch(_) {}
-      cb && cb({});
+        if (typeof JF.getWidgetSettings === 'function') return JF.getWidgetSettings((s)=>{ dlog({settings_from:'getWidgetSettings', settings:s}); cb(s); });
+        if (typeof JF.requestSettings === 'function')    return JF.requestSettings((s)=>{ dlog({settings_from:'requestSettings', settings:s}); cb(s); });
+      } catch(e) { dlog({error:'settings', e:String(e)}); }
+      dlog('settings fallback → {}'); cb({});
     }
+    // Read host field values, robust against shape/key variants
     function readHostValues(settings, cb){
       JF.getFieldsValue(function(values){
-        // Normalize values across shapes: { [id]: {value} } or { [id]: '...' }
+        dlog({ raw_values: values });
+  
+        // list keys present so we can match
+        dlog({ values_keys: Object.keys(values || {}) });
+  
+        const sKey = settings.startFieldId;
+        const eKey = settings.endFieldId;
+        const nKey = settings.totalWorkersFieldId;
+  
+        // Helper that tries several variants. Also accepts non-numeric "unique name".
         const pick = (key) => {
           if (!key) return undefined;
-          if (values[key] != null) {
-            const v = values[key];
-            return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+          const candidates = [ key, `input_${key}`, `q${key}` ];
+          for (const c of candidates) {
+            if (values.hasOwnProperty(c)) {
+              const v = values[c];
+              return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+            }
           }
-          if (values['input_' + key] != null) {
-            const v = values['input_' + key];
-            return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
-          }
-          if (values['q' + key] != null) {
-            const v = values['q' + key];
-            return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+          // Try a last-resort scan by case-insensitive match on key name
+          const lower = String(key).toLowerCase();
+          for (const k of Object.keys(values)) {
+            if (k.toLowerCase() === lower) {
+              const v = values[k];
+              return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+            }
           }
           return undefined;
         };
-
-        const sId = settings.startFieldId, eId = settings.endFieldId, nId = settings.totalWorkersFieldId;
-        const startDate = pick(sId);
-        const endDate   = pick(eId);
-        const twRaw     = pick(nId);
+  
+        const startDate = pick(sKey);
+        const endDate   = pick(eKey);
+        const twRaw     = pick(nKey);
         const totalWorkers = (twRaw != null && twRaw !== '') ? Number(twRaw) : undefined;
-
-        cb({ startDate, endDate, totalWorkers });
+  
+        const resolved = { startDate, endDate, totalWorkers };
+        dlog({ resolved_params: resolved });
+  
+        cb(resolved);
       });
     }
+
     function pushValue(valid, message) {
       try {
         JF.sendData({ value: JSON.stringify(serialize()), valid, message: message || '' });
-      } catch (_) {}
+      } catch (e) { dlog({error:'sendData', e:String(e)}); }
     }
     window.sendValue = ({ valid, message }) => pushValue(valid, message);
-
+  
     // Initial boot
     JF.subscribe('ready', function(){
+      dlog('JF → ready');
       getSettings(function(settings){
         readHostValues(settings, function(vals){
+          dlog('boot() with host values');
           boot(vals);
           pushValue(validate().length === 0);
         });
       });
     });
 
-    // Live sync every 800ms to catch host field edits
+    // Live sync every 800ms (shows diffs in debug)
     let last = { startDate: undefined, endDate: undefined, totalWorkers: undefined };
     const sync = () => {
       getSettings(function(settings){
@@ -369,6 +424,7 @@
             vals.endDate   !== last.endDate   ||
             Number(vals.totalWorkers || 0) !== Number(last.totalWorkers || 0);
           if (changed) {
+            dlog({ sync_change_from: last, to: vals });
             last = { ...vals };
             setBounds(vals);
           }
@@ -379,11 +435,12 @@
 
     // Validate on submit
     JF.subscribe('submit', function(){
+      dlog('JF → submit');
       const errs = validate();
       pushValue(errs.length === 0, errs[0] || '');
       try { clearInterval(syncInterval); } catch(_) {}
     });
-
+  
     return true;
   }
 
@@ -399,4 +456,5 @@
 </script>
 </body>
 </html>
+
 
