@@ -55,7 +55,7 @@
 <body>
   <div class="widget" id="widget">
     <header>
-      <h1>Staggered Arrivals (v17)</h1>
+      <h1>Staggered Arrivals (v18)</h1>
       <div class="meta" id="jobMeta">Start — End • 0 workers</div>
     </header>
     <div class="content">
@@ -96,76 +96,57 @@
     </div>
   </div>
   <script>
-    // === ULTRA-LOUD DIAGNOSTICS ===
+    // === ULTRA-LOUD DIAGNOSTICS (runs ASAP) ===
     (function(){
-      const put = (id, msg) => { const el = document.getElementById(id); if (el) el.textContent = msg; };
+      const put  = (id, msg) => { const el = document.getElementById(id); if (el) el.textContent = msg; };
       const push = (id, msg) => { const el = document.getElementById(id); if (el) el.textContent += (el.textContent? "\n":"") + msg; };
-    
-      // Where to write
-      const STATUS_ID = 'status';         // you already have this
-      const NOTE_ID   = 'dbg-note';       // you already have this
-    
-      // Timestamp helper
+      const STATUS_ID = 'status';
+      const NOTE_ID   = 'dbg-note';
       const ts = () => new Date().toISOString().replace('T',' ').replace('Z','');
     
-      // Show that the script is alive ASAP
       put(STATUS_ID, 'script alive @ ' + ts());
+      window.addEventListener('error', e => { push(STATUS_ID, 'JS error @ ' + ts() + ': ' + (e.message || e)); });
+      window.addEventListener('unhandledrejection', e => { push(STATUS_ID, 'Promise error @ ' + ts() + ': ' + ((e.reason && e.reason.message) || e.reason || e)); });
     
-      // Log uncaught errors
-      window.addEventListener('error', e => {
-        push(STATUS_ID, 'JS error @ ' + ts() + ': ' + (e.message || e));
-      });
-      window.addEventListener('unhandledrejection', e => {
-        push(STATUS_ID, 'Promise error @ ' + ts() + ': ' + ((e.reason && e.reason.message) || e.reason || e));
-      });
-    
-      // Show environment clues
       const env = [];
       env.push('href=' + location.href);
       env.push('referrer=' + document.referrer);
       env.push('JF now=' + !!window.JFCustomWidget);
       put(NOTE_ID, env.join(' | '));
     
-      // If boot() never runs, force a fallback after 1200ms so we see rows
-      // (boot() must be globally defined below; we’ll call it later too if ready fires)
+      // Fallback boot if nothing else calls boot()
       setTimeout(() => {
         if (!window.__didBoot) {
           push(STATUS_ID, 'fallback boot @ ' + ts());
-          try { 
+          try {
             if (typeof window.boot === 'function') {
               window.boot({ startDate:'', endDate:'', totalWorkers:0 });
               window.__didBoot = true;
             } else {
               push(STATUS_ID, 'boot() not defined yet');
             }
-          } catch (err) {
-            push(STATUS_ID, 'boot() threw: ' + (err && err.message || err));
-          }
+          } catch (err) { push(STATUS_ID, 'boot() threw: ' + (err && err.message || err)); }
         }
       }, 1200);
     
-      // Expose a tiny tracer you can sprinkle anywhere: dbg('hit X')
+      // handy tracer
       window.dbg = (msg) => push(STATUS_ID, (msg || 'dbg') + ' @ ' + ts());
     })();
-
+    
+    // optional: dump raw querystring (helps confirm widget params in URL)
     const qsDump = document.getElementById('dbg-qs');
     if (qsDump) qsDump.textContent = location.search;
     
-    (function(){ 
-      var s = document.getElementById('status'); 
-      if (s) s.textContent = 'script alive @ ' + new Date().toISOString(); 
+    // quick JF presence probe
+    (function(){
+      const note = document.getElementById('dbg-note');
+      if (note) note.textContent += ' | JF present now: ' + !!window.JFCustomWidget;
+      setTimeout(() => {
+        const note2 = document.getElementById('dbg-note');
+        if (note2) note2.textContent += ' | after 1s: ' + !!window.JFCustomWidget;
+      }, 1000);
     })();
-
-    // Put right after your "script alive" line
-    const note = document.getElementById('dbg-note');
-    if (note) note.textContent = 'JF present: ' + !!window.JFCustomWidget;
     
-    // After 1000ms, check again (in case it initializes late)
-    setTimeout(() => {
-      const note2 = document.getElementById('dbg-note');
-      if (note2) note2.textContent += ' | after 1s: ' + !!window.JFCustomWidget;
-    }, 1000);
-
     // ===== Elements
     const els = {
       rows: document.getElementById('rows'),
@@ -175,7 +156,7 @@
       status: document.getElementById('status'),
       jobMeta: document.getElementById('jobMeta'),
     };
-  
+    
     // ===== State
     const state = {
       startDate: null,   // yyyy-mm-dd
@@ -184,7 +165,7 @@
       values: [],        // [{ date: 'yyyy-mm-dd', count: number }]
       minRows: 2,
     };
-  
+    
     // ===== Utils
     function fmtMeta() {
       els.jobMeta.textContent = `${state.startDate || 'Start'} — ${state.endDate || 'End'} • ${state.totalWorkers} workers`;
@@ -206,25 +187,25 @@
     function sumSelected() {
       return state.values.reduce((a, r) => a + (Number(r.count) || 0), 0);
     }
-  
+    
     // ===== Render
     function render() {
       els.rows.innerHTML = '';
-  
+    
       state.values.forEach((row, idx) => {
         const tr = document.createElement('tr');
-  
+    
         // Date cell
         const tdDate = document.createElement('td');
         const date = document.createElement('input');
         date.type = 'date';
         date.required = true;
-  
+    
         const prevDate = idx > 0 ? (state.values[idx - 1]?.date || null) : null;
         const minForThis = idx === 0 ? state.startDate : (prevDate ? nextDay(prevDate) : state.startDate);
         if (minForThis)    date.min = minForThis;
         if (state.endDate) date.max = state.endDate;
-  
+    
         date.value = row.date || '';
         date.addEventListener('change', () => {
           let newVal = clampDateToRange(date.value);
@@ -238,7 +219,7 @@
           render(); // refresh mins for later rows
         });
         tdDate.appendChild(date);
-  
+    
         // Number cell
         const tdNum = document.createElement('td');
         const num = document.createElement('input');
@@ -256,7 +237,7 @@
           validateAndEmit();
         });
         tdNum.appendChild(num);
-  
+    
         // Actions cell
         const tdActions = document.createElement('td');
         const del = document.createElement('button');
@@ -265,43 +246,38 @@
         del.type = 'button';
         del.addEventListener('click', () => removeRow(idx));
         tdActions.appendChild(del);
-  
+    
         tr.appendChild(tdDate);
         tr.appendChild(tdNum);
         tr.appendChild(tdActions);
         els.rows.appendChild(tr);
       });
-  
+    
       // Footer + controls
       const total = sumSelected();
       els.totalSelected.textContent = String(total);
-  
+    
       const canRemove = state.values.length > state.minRows;
       [...els.rows.querySelectorAll('button')].forEach(btn => btn.disabled = !canRemove);
-  
+    
       els.add.disabled = (state.totalWorkers > 0 && total >= state.totalWorkers);
     }
-  
+    
     // ===== Core actions
     function addRow(prefill = {}) {
-      state.values.push({
-        date:  prefill.date  ?? '',
-        count: prefill.count ?? 0,
-      });
-      render();
-      validateAndEmit();
+      state.values.push({ date: prefill.date ?? '', count: prefill.count ?? 0 });
+      render(); validateAndEmit();
     }
     function removeRow(idx) {
       if (state.values.length <= state.minRows) return;
       state.values.splice(idx, 1);
-      render();
-      validateAndEmit();
+      render(); validateAndEmit();
     }
     function setBounds({ startDate, endDate, totalWorkers }) {
       if (startDate != null)    state.startDate = startDate;
       if (endDate != null)      state.endDate = endDate;
       if (totalWorkers != null) state.totalWorkers = Number(totalWorkers) || 0;
-  
+    
       fmtMeta();
       // Snap existing rows to range and order
       state.values.forEach((r, i) => {
@@ -311,15 +287,12 @@
           if (prev && (!r.date || r.date <= prev)) r.date = nextDay(prev);
         }
       });
-      render();
-      validateAndEmit();
+      render(); validateAndEmit();
     }
-  
+    
     // ===== Validation / serialization
     function validate() {
       const errors = [];
-  
-      // Dates present, in range, strictly increasing
       for (let i = 0; i < state.values.length; i++) {
         const r = state.values[i];
         if (!r.date) { errors.push('All rows must have a date.'); break; }
@@ -331,16 +304,11 @@
           if (r.date <= prev) { errors.push('Dates must be strictly increasing with no duplicates.'); break; }
         }
       }
-  
-      // Totals must equal requested
       const total = sumSelected();
       if (state.totalWorkers > 0 && total !== state.totalWorkers) {
         errors.push(`Total selected (${total}) must equal requested (${state.totalWorkers}).`);
       }
-  
-      // Minimum rows
       if (state.values.length < state.minRows) errors.push('At least two arrival rows are required.');
-  
       return errors;
     }
     function validateAndEmit() {
@@ -356,25 +324,23 @@
     function serialize() {
       return state.values.map(r => ({ date: r.date, count: Number(r.count) || 0 }));
     }
-  
+    
     // ===== Boot / integration
     els.add.addEventListener('click', () => addRow());
-  
     function boot(initialConfig) {
       if (state.values.length === 0) { addRow(); addRow(); }
       if (initialConfig) {
         setBounds(initialConfig);
         if (state.values[0] && !state.values[0].date && initialConfig.startDate) {
           state.values[0].date = initialConfig.startDate;
-          render();
-          validateAndEmit();
+          render(); validateAndEmit();
         }
       } else {
-        render();
-        validateAndEmit();
+        render(); validateAndEmit();
       }
     }
-  
+    window.boot = boot; // make sure diagnostics can call it
+    
     // Query param testing: ?start=YYYY-MM-DD&end=YYYY-MM-DD&workers=25
     function readQueryConfig() {
       try {
@@ -387,67 +353,59 @@
       } catch (_) {}
       return null;
     }
-  
-    // ---- Jotform integration (listeners, no polling)
+    
+    // ===== Helpers for robust JF reading/listening
+    function normalizeFieldId(raw) {
+      let s = String(raw || '').trim();
+      s = s.replace(/^#/, '');      // drop leading '#'
+      s = s.replace(/_pick$/, '');  // Jotform datepicker suffix
+      if (/^\d+$/.test(s)) s = 'input_' + s; // allow bare numbers like "4"
+      return s;
+    }
+    function getInitialValuesViaNames(JF, settings, cb) {
+      const ids = [
+        normalizeFieldId(settings?.startFieldId),
+        normalizeFieldId(settings?.endFieldId),
+        normalizeFieldId(settings?.totalWorkersFieldId),
+      ].filter(Boolean);
+    
+      if (!ids.length) { cb({ startDate:'', endDate:'', totalWorkers:0, _source:'no-ids' }); return; }
+    
+      if (typeof JF.getFieldsValueByName === 'function') {
+        JF.getFieldsValueByName(ids, (map) => {
+          const startDate = map[ids[0]] ?? '';
+          const endDate   = map[ids[1]] ?? '';
+          const twRaw     = map[ids[2]] ?? '';
+          const totalWorkers = twRaw ? Number(twRaw) : 0;
+          cb({ startDate, endDate, totalWorkers, _source:'byName' });
+        });
+      } else {
+        // Fallback to your existing broad read (if you still keep it)
+        readHostValues(settings, (vals) => cb({ ...vals, _source:'getFieldsValue' }));
+      }
+    }
+    function attachJFListeners(JF, settings) {
+      const pairs = [
+        ['startFieldId', (v)=> setBounds({ startDate: v })],
+        ['endFieldId',   (v)=> setBounds({ endDate: v })],
+        ['totalWorkersFieldId', (v)=> setBounds({ totalWorkers: Number(v)||0 })],
+      ];
+      for (const [key, handler] of pairs) {
+        const id = normalizeFieldId(settings?.[key]);
+        if (!id) continue;
+        try { JF.listenFromField(id, 'change', handler); } catch (_){}
+        try { JF.listenFromField(id, 'keyup',  handler); } catch (_){}
+      }
+    }
+    
+    // ===== Jotform integration (race-proof bind + recovery)
     function tryBindJotform() {
-      if (!window.JFCustomWidget) return false;
-      
+      if (!window.JFCustomWidget) return false; // not ready yet
       const JF = window.JFCustomWidget;
       dbg('JF present=' + !!JF);
-      
-      let didFireReady = false;
-      setTimeout(() => {
-        if (!didFireReady && !window.__didBoot) {
-          const note = document.getElementById('dbg-note');
-          if (note) note.textContent += ' | NO ready in 1500ms → fallback boot';
-          try {
-            boot({ startDate:'', endDate:'', totalWorkers:0 });
-            window.__didBoot = true;
-            dbg('fallback boot ok');
-          } catch (err) {
-            dbg('fallback boot error: ' + (err && err.message || err));
-          }
-        }
-      }, 1500);
-      
-      JF.subscribe('ready', function(){
-        didFireReady = true;
-        dbg('JF ready');
-      
-        getSettings(function(settings){
-          dbg('got settings keys=' + Object.keys(settings||{}).join(','));
-          const dbgSettings = document.getElementById('dbg-settings');
-          if (dbgSettings) dbgSettings.textContent = JSON.stringify(settings || {}, null, 2);
-      
-          // Initial values
-          readHostValues(settings, function(vals){
-            dbg('readHostValues start=' + vals.startDate + ' end=' + vals.endDate + ' total=' + vals.totalWorkers);
-            try {
-              boot(vals);
-              window.__didBoot = true;
-              dbg('boot ok');
-            } catch (err) {
-              dbg('boot error: ' + (err && err.message || err));
-            }
-            try {
-              pushValue(validate().length === 0);
-              dbg('initial pushValue ok');
-            } catch (err) {
-              dbg('initial pushValue error: ' + (err && err.message || err));
-            }
-          });
-      
-          // Live listeners
-          try {
-            attachListeners(JF, settings.startFieldId,  (val) => setBounds({ startDate: val }));
-            attachListeners(JF, settings.endFieldId,    (val) => setBounds({ endDate: val }));
-            attachListeners(JF, settings.totalWorkersFieldId, (val) => setBounds({ totalWorkers: val }));
-            dbg('listeners attached to: ' + [settings.startFieldId, settings.endFieldId, settings.totalWorkersFieldId].join(','));
-          } catch (err) {
-            dbg('attachListeners error: ' + (err && err.message || err));
-          }
-        });
-      });
+    
+      let didBoot = false;
+      let didReady = false;
     
       // Validate on submit
       JF.subscribe('submit', function(){
@@ -455,50 +413,86 @@
         pushValue(errs.length === 0, errs[0] || '');
       });
     
+      // Normal path: ready → settings → initial read → boot → listeners
+      try {
+        JF.subscribe('ready', function(){
+          didReady = true;
+          dbg('JF ready');
+    
+          getSettings(function(settings){
+            const dbgSettings = document.getElementById('dbg-settings');
+            if (dbgSettings) dbgSettings.textContent = JSON.stringify(settings || {}, null, 2);
+    
+            getInitialValuesViaNames(JF, settings || {}, function(vals){
+              dbg('initial via ' + (vals._source || '?') + ' start=' + vals.startDate + ' end=' + vals.endDate + ' total=' + vals.totalWorkers);
+              try {
+                boot({ startDate: vals.startDate, endDate: vals.endDate, totalWorkers: vals.totalWorkers });
+                window.__didBoot = true; didBoot = true;
+                pushValue(validate().length === 0);
+                dbg('boot ok + initial push');
+              } catch (err) { dbg('boot error: ' + (err && err.message || err)); }
+            });
+    
+            attachJFListeners(JF, settings || {});
+            dbg('listeners attached');
+          });
+        });
+      } catch (_) {}
+    
+      // Recovery path: if ready never fires but JF exists, pull settings anyway
+      setTimeout(() => {
+        if (didBoot) return;
+        try {
+          if (typeof JF.getWidgetSettings === 'function') {
+            JF.getWidgetSettings((settings) => {
+              const dbgSettings = document.getElementById('dbg-settings');
+              if (dbgSettings) dbgSettings.textContent = JSON.stringify(settings || {}, null, 2);
+    
+              getInitialValuesViaNames(JF, settings || {}, function(vals){
+                try {
+                  boot({ startDate: vals.startDate, endDate: vals.endDate, totalWorkers: vals.totalWorkers });
+                  window.__didBoot = true; didBoot = true;
+                  pushValue(validate().length === 0);
+                  attachJFListeners(JF, settings || {});
+                  const note = document.getElementById('dbg-note');
+                  if (note) note.textContent = (note.textContent||'') + ' | recovered without ready';
+                  dbg('recovered without ready');
+                } catch (err) { dbg('recover boot error: ' + (err && err.message || err)); }
+              });
+            });
+          }
+        } catch (e) {
+          const s = document.getElementById('status');
+          if (s) s.textContent += ' | recovery error: ' + (e && e.message || e);
+        }
+      }, 1500);
+    
       return true;
     }
-  
-    // Default sendValue for standalone
-    window.sendValue = ({ valid, message }) => { /* no-op in standalone */ };
-
-    // Normalize whatever the user typed (QID/unique-name/DOM-ish) into:
-    // - candidates we try in getFieldsValue()
-    // - keys we listen to with listenFromField()
+    
+    // Default sendValue for standalone; JF path overwrites via subscribe('submit')
+    function pushValue(valid, message) {
+      try { JFCustomWidget && JFCustomWidget.sendData({ value: JSON.stringify(serialize()), valid, message: message || '' }); } catch (_){}
+    }
+    window.sendValue = ({ valid, message }) => pushValue(valid, message);
+    
+    // Your existing helpers (OPTIONAL): keep only if you still call them elsewhere
     function normalizeFieldKey(raw) {
       if (raw == null) return { lookup: [], listen: [] };
       let s = String(raw).trim();
-    
-      // Strip leading '#' and trailing '_pick' (Jotform date pickers)
       if (s.startsWith('#')) s = s.slice(1);
       s = s.replace(/_pick$/i, '');
-    
-      // Pure number? That's the question ID. Jotform usually uses input_<QID>.
       if (/^\d+$/.test(s)) {
         const qid = s;
-        return {
-          lookup: [qid, `input_${qid}`, `q${qid}`], // shapes we may see in getFieldsValue()
-          listen: [`input_${qid}`]                  // event source for listenFromField
-        };
+        return { lookup: [qid, `input_${qid}`, `q${qid}`], listen: [`input_${qid}`] };
       }
-    
-      // If it's input_### already, derive the numeric variants too
       const m = s.match(/^input_(\d+)$/);
       if (m) {
         const qid = m[1];
-        return {
-          lookup: [qid, s, `q${qid}`],
-          listen: [s]
-        };
+        return { lookup: [qid, s, `q${qid}`], listen: [s] };
       }
-    
-      // Otherwise treat as unique name
-      return {
-        lookup: [s],    // getFieldsValue may expose by unique name
-        listen: [s]     // listen by unique name
-      };
+      return { lookup: [s], listen: [s] };
     }
-    
-    // Use this to read initial values
     function pickFromValues(values, rawKey) {
       const { lookup } = normalizeFieldKey(rawKey);
       for (const k of lookup) {
@@ -509,18 +503,15 @@
       }
       return undefined;
     }
-    
-    // Use this to wire listeners
     function attachListeners(JF, rawKey, handler) {
       const { listen } = normalizeFieldKey(rawKey);
       for (const key of listen) {
-        try {
-          JF.listenFromField(key, 'change', handler);
-          JF.listenFromField(key, 'keyup',  handler);
-        } catch (_) {}
+        try { JF.listenFromField(key, 'change', handler); } catch (_){}
+        try { JF.listenFromField(key, 'keyup',  handler); } catch (_){}
       }
     }
     
+    // One-time binder, triggered by the script onload in <head>
     let __didBind = false;
     window.__bindJotformOnce = function () {
       if (__didBind) return;
@@ -531,13 +522,13 @@
         boot(qc || { startDate: '', endDate: '', totalWorkers: 0 });
       }
     };
-  
-    // If JFCustomWidget was already present (rare), bind immediately
+    
+    // If JFCustomWidget is already present (rare), bind immediately
     if (window.JFCustomWidget) window.__bindJotformOnce();
-
-  </script>
+    </script>
 </body>
 </html>
+
 
 
 
