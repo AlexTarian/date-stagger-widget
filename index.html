@@ -55,7 +55,7 @@
 <body>
   <div class="widget" id="widget">
     <header>
-      <h1>Staggered Arrivals (v15)</h1>
+      <h1>Staggered Arrivals (v16)</h1>
       <div class="meta" id="jobMeta">Start — End • 0 workers</div>
     </header>
     <div class="content">
@@ -92,6 +92,58 @@
     </div>
   </div>
   <script>
+    // === ULTRA-LOUD DIAGNOSTICS ===
+    (function(){
+      const put = (id, msg) => { const el = document.getElementById(id); if (el) el.textContent = msg; };
+      const push = (id, msg) => { const el = document.getElementById(id); if (el) el.textContent += (el.textContent? "\n":"") + msg; };
+    
+      // Where to write
+      const STATUS_ID = 'status';         // you already have this
+      const NOTE_ID   = 'dbg-note';       // you already have this
+    
+      // Timestamp helper
+      const ts = () => new Date().toISOString().replace('T',' ').replace('Z','');
+    
+      // Show that the script is alive ASAP
+      put(STATUS_ID, 'script alive @ ' + ts());
+    
+      // Log uncaught errors
+      window.addEventListener('error', e => {
+        push(STATUS_ID, 'JS error @ ' + ts() + ': ' + (e.message || e));
+      });
+      window.addEventListener('unhandledrejection', e => {
+        push(STATUS_ID, 'Promise error @ ' + ts() + ': ' + ((e.reason && e.reason.message) || e.reason || e));
+      });
+    
+      // Show environment clues
+      const env = [];
+      env.push('href=' + location.href);
+      env.push('referrer=' + document.referrer);
+      env.push('JF now=' + !!window.JFCustomWidget);
+      put(NOTE_ID, env.join(' | '));
+    
+      // If boot() never runs, force a fallback after 1200ms so we see rows
+      // (boot() must be globally defined below; we’ll call it later too if ready fires)
+      setTimeout(() => {
+        if (!window.__didBoot) {
+          push(STATUS_ID, 'fallback boot @ ' + ts());
+          try { 
+            if (typeof window.boot === 'function') {
+              window.boot({ startDate:'', endDate:'', totalWorkers:0 });
+              window.__didBoot = true;
+            } else {
+              push(STATUS_ID, 'boot() not defined yet');
+            }
+          } catch (err) {
+            push(STATUS_ID, 'boot() threw: ' + (err && err.message || err));
+          }
+        }
+      }, 1200);
+    
+      // Expose a tiny tracer you can sprinkle anywhere: dbg('hit X')
+      window.dbg = (msg) => push(STATUS_ID, (msg || 'dbg') + ' @ ' + ts());
+    })();
+    
     (function(){ 
       var s = document.getElementById('status'); 
       if (s) s.textContent = 'script alive @ ' + new Date().toISOString(); 
@@ -488,6 +540,7 @@
   </script>
 </body>
 </html>
+
 
 
 
