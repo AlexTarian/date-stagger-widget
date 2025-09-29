@@ -55,7 +55,7 @@
 <body>
   <div class="widget" id="widget">
     <header>
-      <h1>Staggered Arrivals (v16)</h1>
+      <h1>Staggered Arrivals (v17)</h1>
       <div class="meta" id="jobMeta">Start — End • 0 workers</div>
     </header>
     <div class="content">
@@ -143,6 +143,9 @@
       // Expose a tiny tracer you can sprinkle anywhere: dbg('hit X')
       window.dbg = (msg) => push(STATUS_ID, (msg || 'dbg') + ' @ ' + ts());
     })();
+
+    const qsDump = document.getElementById('dbg-qs');
+    if (qsDump) qsDump.textContent = location.search;
     
     (function(){ 
       var s = document.getElementById('status'); 
@@ -384,70 +387,61 @@
     // ---- Jotform integration (listeners, no polling)
     function tryBindJotform() {
       if (!window.JFCustomWidget) return false;
+      
       const JF = window.JFCustomWidget;
+      dbg('JF present=' + !!JF);
+      
       let didFireReady = false;
       setTimeout(() => {
-        if (!didFireReady) {
+        if (!didFireReady && !window.__didBoot) {
           const note = document.getElementById('dbg-note');
-          if (note) note.textContent = 'JFCustomWidget.ready did not fire; running in fallback.';
-          boot({ startDate: '', endDate: '', totalWorkers: 0 });
+          if (note) note.textContent += ' | NO ready in 1500ms → fallback boot';
+          try {
+            boot({ startDate:'', endDate:'', totalWorkers:0 });
+            window.__didBoot = true;
+            dbg('fallback boot ok');
+          } catch (err) {
+            dbg('fallback boot error: ' + (err && err.message || err));
+          }
         }
       }, 1500);
-    
-      function getSettings(cb){
-        try {
-          if (typeof JF.getWidgetSettings === 'function') return JF.getWidgetSettings(s => cb(s || {}));
-          if (typeof JF.requestSettings === 'function')    return JF.requestSettings(s => cb(s || {}));
-        } catch (_) { /* ignore */ }
-        cb({});
-      }
-    
-      function readHostValues(settings, cb){
-        JF.getFieldsValue(function(values){
-          const dbgKeys = document.getElementById('dbg-keys');
-          if (dbgKeys) dbgKeys.textContent = JSON.stringify(Object.keys(values || {}));
-          
-          const dbgStart = document.getElementById('dbg-start');
-          const dbgEnd   = document.getElementById('dbg-end');
-          const dbgTotal = document.getElementById('dbg-total');
-          if (dbgStart) dbgStart.textContent = String(settings.startFieldId || '(missing)');
-          if (dbgEnd)   dbgEnd.textContent   = String(settings.endFieldId   || '(missing)');
-          if (dbgTotal) dbgTotal.textContent = String(settings.totalWorkersFieldId || '(missing)');
-          
-          const sId = settings.startFieldId;
-          const eId = settings.endFieldId;
-          const nId = settings.totalWorkersFieldId;
-          const startDate = pickFromValues(values, sId);
-          const endDate   = pickFromValues(values, eId);
-          const twRaw     = pickFromValues(values, nId);
-          const totalWorkers = (twRaw != null && twRaw !== '') ? Number(twRaw) : undefined;
-          cb({ startDate, endDate, totalWorkers });
-        });
-      }
-    
-      function pushValue(valid, message) {
-        try { JF.sendData({ value: JSON.stringify(serialize()), valid, message: message || '' }); } catch (_){}
-      }
-      window.sendValue = ({ valid, message }) => pushValue(valid, message);
-    
-      // Initial boot + listeners
+      
       JF.subscribe('ready', function(){
         didFireReady = true;
+        dbg('JF ready');
+      
         getSettings(function(settings){
-
+          dbg('got settings keys=' + Object.keys(settings||{}).join(','));
           const dbgSettings = document.getElementById('dbg-settings');
           if (dbgSettings) dbgSettings.textContent = JSON.stringify(settings || {}, null, 2);
-    
-          // Live listeners (handle changes instantly)
-          attachListeners(JF, settings.startFieldId, (val) => setBounds({ startDate: val }));
-          attachListeners(JF, settings.endFieldId,   (val) => setBounds({ endDate: val }));
-          attachListeners(JF, settings.totalWorkersFieldId, (val) => setBounds({ totalWorkers: val }));
-    
+      
           // Initial values
           readHostValues(settings, function(vals){
-            boot(vals);
-            pushValue(validate().length === 0);
+            dbg('readHostValues start=' + vals.startDate + ' end=' + vals.endDate + ' total=' + vals.totalWorkers);
+            try {
+              boot(vals);
+              window.__didBoot = true;
+              dbg('boot ok');
+            } catch (err) {
+              dbg('boot error: ' + (err && err.message || err));
+            }
+            try {
+              pushValue(validate().length === 0);
+              dbg('initial pushValue ok');
+            } catch (err) {
+              dbg('initial pushValue error: ' + (err && err.message || err));
+            }
           });
+      
+          // Live listeners
+          try {
+            attachListeners(JF, settings.startFieldId,  (val) => setBounds({ startDate: val }));
+            attachListeners(JF, settings.endFieldId,    (val) => setBounds({ endDate: val }));
+            attachListeners(JF, settings.totalWorkersFieldId, (val) => setBounds({ totalWorkers: val }));
+            dbg('listeners attached to: ' + [settings.startFieldId, settings.endFieldId, settings.totalWorkersFieldId].join(','));
+          } catch (err) {
+            dbg('attachListeners error: ' + (err && err.message || err));
+          }
         });
       });
     
@@ -540,6 +534,7 @@
   </script>
 </body>
 </html>
+
 
 
 
