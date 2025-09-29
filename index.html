@@ -55,7 +55,7 @@
 <body>
   <div class="widget" id="widget">
     <header>
-      <h1>Staggered Arrivals (v14)</h1>
+      <h1>Staggered Arrivals (v15)</h1>
       <div class="meta" id="jobMeta">Start — End • 0 workers</div>
     </header>
     <div class="content">
@@ -92,6 +92,21 @@
     </div>
   </div>
   <script>
+    (function(){ 
+      var s = document.getElementById('status'); 
+      if (s) s.textContent = 'script alive @ ' + new Date().toISOString(); 
+    })();
+
+    // Put right after your "script alive" line
+    const note = document.getElementById('dbg-note');
+    if (note) note.textContent = 'JF present: ' + !!window.JFCustomWidget;
+    
+    // After 1000ms, check again (in case it initializes late)
+    setTimeout(() => {
+      const note2 = document.getElementById('dbg-note');
+      if (note2) note2.textContent += ' | after 1s: ' + !!window.JFCustomWidget;
+    }, 1000);
+
     // ===== Elements
     const els = {
       rows: document.getElementById('rows'),
@@ -473,6 +488,7 @@
   </script>
 </body>
 </html>
+
 
 
 
