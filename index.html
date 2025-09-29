@@ -4,7 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Arrival Stagger Widget</title>
-  <script src="//js.jotform.com/JotFormCustomWidget.min.js"></script>
+  <script>
+    function __onJFReadyLoad() {
+      if (typeof window.__bindJotformOnce === 'function') window.__bindJotformOnce();
+    }
+  </script>
+  <script async src="https://js.jotform.com/JotFormCustomWidget.min.js?onload=__onJFReadyLoad"></script>
   <style>
     :root {
       --radius: 14px;
@@ -50,7 +55,7 @@
 <body>
   <div class="widget" id="widget">
     <header>
-      <h1>Staggered Arrivals (v13)</h1>
+      <h1>Staggered Arrivals (v14)</h1>
       <div class="meta" id="jobMeta">Start — End • 0 workers</div>
     </header>
     <div class="content">
@@ -313,6 +318,14 @@
     function tryBindJotform() {
       if (!window.JFCustomWidget) return false;
       const JF = window.JFCustomWidget;
+      let didFireReady = false;
+      setTimeout(() => {
+        if (!didFireReady) {
+          const note = document.getElementById('dbg-note');
+          if (note) note.textContent = 'JFCustomWidget.ready did not fire; running in fallback.';
+          boot({ startDate: '', endDate: '', totalWorkers: 0 });
+        }
+      }, 1500);
     
       function getSettings(cb){
         try {
@@ -352,6 +365,7 @@
     
       // Initial boot + listeners
       JF.subscribe('ready', function(){
+        didFireReady = true;
         getSettings(function(settings){
 
           const dbgSettings = document.getElementById('dbg-settings');
@@ -381,13 +395,6 @@
   
     // Default sendValue for standalone
     window.sendValue = ({ valid, message }) => { /* no-op in standalone */ };
-  
-    // Init priority: Jotform → query params → defaults
-    const bound = tryBindJotform();
-    if (!bound) {
-      const qc = readQueryConfig();
-      boot(qc || { startDate: '', endDate: '', totalWorkers: 0 });
-    }
 
     // Normalize whatever the user typed (QID/unique-name/DOM-ish) into:
     // - candidates we try in getFieldsValue()
@@ -448,10 +455,25 @@
         } catch (_) {}
       }
     }
+    
+    let __didBind = false;
+    window.__bindJotformOnce = function () {
+      if (__didBind) return;
+      __didBind = true;
+      const bound = tryBindJotform();
+      if (!bound) {
+        const qc = readQueryConfig();
+        boot(qc || { startDate: '', endDate: '', totalWorkers: 0 });
+      }
+    };
+  
+    // If JFCustomWidget was already present (rare), bind immediately
+    if (window.JFCustomWidget) window.__bindJotformOnce();
 
   </script>
 </body>
 </html>
+
 
 
 
