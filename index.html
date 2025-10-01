@@ -9,7 +9,7 @@
   <style></style>
   <body>
     <div id="reviewArea">
-      <div>Version 3 </div>
+      <div>Version 4 </div>
       <div>Start Date: </div>
       <div>End Date: </div>
       <div>Workers: </div>
@@ -19,6 +19,10 @@
         const start = JFCustomWidget.getWidgetSettings('startFieldId');
         const end = JFCustomWidget.getWidgetSettings('endFieldId');
         const workers = JFCustomWidget.getWidgetSettings('totalWorkersFieldId');
+
+        console.log(`start param: ${start}`)
+        console.log(`end param: ${end}`)
+        console.log(`workers param: ${workers}`)
 
         // exposed functions
         this.init = init;
@@ -39,19 +43,19 @@
         function getStartDate(){
           console.log("Running getStartDate")
           JFCustomWidget.getFieldsValueById(start, function(res){
-              setTimeout(console.log(`Here's the data ${JSON.stringify(res, null, 2)}`), 500)
+              console.log(`start date is ${res}`)
           })
         }
         function getEndDate(){
           console.log("Running getEndDate")
           JFCustomWidget.getFieldsValueById(end, function(res){
-              setTimeout(console.log(`Here's the data ${JSON.stringify(res, null, 2)}`), 500)
+              console.log(`end date is ${res}`)
           })
         }
         function getWorkers(){
           console.log("Running getWorkers")
           JFCustomWidget.getFieldsValueById(workers, function(res){
-              setTimeout(console.log(`Here's the data ${JSON.stringify(res, null, 2)}`), 500)
+              console.log(`worker count is ${res}`)
           })
         }
 
@@ -86,6 +90,7 @@
     </script>
   </body>
 </html>
+
 
 
 
