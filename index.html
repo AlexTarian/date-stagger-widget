@@ -55,7 +55,7 @@
 <body>
   <div class="widget" id="widget">
     <header>
-      <h1>Staggered Arrivals (v18)</h1>
+      <h1>Staggered Arrivals (v19)</h1>
       <div class="meta" id="jobMeta">Start — End • 0 workers</div>
     </header>
     <div class="content">
@@ -324,6 +324,25 @@
     function serialize() {
       return state.values.map(r => ({ date: r.date, count: Number(r.count) || 0 }));
     }
+
+    function normalizeFieldIdOrName(raw) {
+      // Accept "4", "input_4", "#input_4_pick", "q4_jobStartDate"
+      let s = String(raw || '').trim();
+      s = s.replace(/^#/, '').replace(/_pick$/i, '');
+      if (/^\d+$/.test(s)) return { id: 'input_' + s, name: null };
+      const m = s.match(/^input_(\d+)$/);
+      if (m) return { id: s, name: null };
+      return { id: null, name: s }; // treat anything else as a unique name
+    }
+    
+    function resolveTargets(settings) {
+      const s = normalizeFieldIdOrName(settings?.startFieldId);
+      const e = normalizeFieldIdOrName(settings?.endFieldId);
+      const n = normalizeFieldIdOrName(settings?.totalWorkersFieldId);
+      const ids   = [s.id, e.id, n.id].filter(Boolean);
+      const names = [s.name, e.name, n.name].filter(Boolean);
+      return { ids, names, s, e, n };
+    }
     
     // ===== Boot / integration
     els.add.addEventListener('click', () => addRow());
@@ -362,28 +381,47 @@
       if (/^\d+$/.test(s)) s = 'input_' + s; // allow bare numbers like "4"
       return s;
     }
-    function getInitialValuesViaNames(JF, settings, cb) {
-      const ids = [
-        normalizeFieldId(settings?.startFieldId),
-        normalizeFieldId(settings?.endFieldId),
-        normalizeFieldId(settings?.totalWorkersFieldId),
-      ].filter(Boolean);
+    function getInitialValues(JF, settings, cb) {
+      const dbgSettings = document.getElementById('dbg-settings');
+      if (dbgSettings) dbgSettings.textContent = JSON.stringify(settings || {}, null, 2);
     
-      if (!ids.length) { cb({ startDate:'', endDate:'', totalWorkers:0, _source:'no-ids' }); return; }
+      const { ids, names, s, e, n } = resolveTargets(settings);
     
-      if (typeof JF.getFieldsValueByName === 'function') {
-        JF.getFieldsValueByName(ids, (map) => {
-          const startDate = map[ids[0]] ?? '';
-          const endDate   = map[ids[1]] ?? '';
-          const twRaw     = map[ids[2]] ?? '';
-          const totalWorkers = twRaw ? Number(twRaw) : 0;
-          cb({ startDate, endDate, totalWorkers, _source:'byName' });
-        });
-      } else {
-        // Fallback to your existing broad read (if you still keep it)
-        readHostValues(settings, (vals) => cb({ ...vals, _source:'getFieldsValue' }));
-      }
+      // Try by ID first, then by Name, then fall back to empty
+      const done = (vals, source) => {
+        const startDate = vals[s.id] ?? vals[s.name] ?? '';
+        const endDate   = vals[e.id] ?? vals[e.name] ?? '';
+        const twRaw     = vals[n.id] ?? vals[n.name] ?? '';
+        const totalWorkers = twRaw ? Number(twRaw) : 0;
+    
+        // Fill your little debug lines if you have them:
+        const dbgKeys = document.getElementById('dbg-keys');
+        if (dbgKeys) dbgKeys.textContent = JSON.stringify(Object.keys(vals || {}));
+    
+        cb({ startDate, endDate, totalWorkers, _source: source });
+      };
+    
+      // Helper to safe-call the APIs (some forms don’t expose both)
+      const tryById = (next) => {
+        if (JF.getFieldsValueById && ids.length) {
+          JF.getFieldsValueById(ids, (map) => {
+            if (map && Object.keys(map).length) return done(map, 'byId');
+            next();
+          });
+        } else next();
+      };
+      const tryByName = (next) => {
+        if (JF.getFieldsValueByName && names.length) {
+          JF.getFieldsValueByName(names, (map) => {
+            if (map && Object.keys(map).length) return done(map, 'byName');
+            next();
+          });
+        } else next();
+      };
+    
+      tryById(() => tryByName(() => done({}, 'empty')));
     }
+
     function attachJFListeners(JF, settings) {
       const pairs = [
         ['startFieldId', (v)=> setBounds({ startDate: v })],
@@ -416,25 +454,25 @@
       // Normal path: ready → settings → initial read → boot → listeners
       try {
         JF.subscribe('ready', function(){
-          didReady = true;
           dbg('JF ready');
-    
-          getSettings(function(settings){
-            const dbgSettings = document.getElementById('dbg-settings');
-            if (dbgSettings) dbgSettings.textContent = JSON.stringify(settings || {}, null, 2);
-    
-            getInitialValuesViaNames(JF, settings || {}, function(vals){
-              dbg('initial via ' + (vals._source || '?') + ' start=' + vals.startDate + ' end=' + vals.endDate + ' total=' + vals.totalWorkers);
+        
+          JF.getWidgetSettings((settings) => {
+            dbg('settings keys=' + Object.keys(settings || {}).join(','));
+        
+            getInitialValues(JF, settings || {}, (vals) => {
+              dbg('init via ' + vals._source + ' start=' + vals.startDate + ' end=' + vals.endDate + ' total=' + vals.totalWorkers);
               try {
                 boot({ startDate: vals.startDate, endDate: vals.endDate, totalWorkers: vals.totalWorkers });
-                window.__didBoot = true; didBoot = true;
+                window.__didBoot = true;
                 pushValue(validate().length === 0);
                 dbg('boot ok + initial push');
-              } catch (err) { dbg('boot error: ' + (err && err.message || err)); }
+              } catch (err) {
+                dbg('boot error: ' + (err && err.message || err));
+              }
             });
-    
-            attachJFListeners(JF, settings || {});
-            dbg('listeners attached');
+        
+            // Attach listeners after boot
+            attachReactiveListeners(JF, settings || {});
           });
         });
       } catch (_) {}
@@ -503,11 +541,21 @@
       }
       return undefined;
     }
-    function attachListeners(JF, rawKey, handler) {
-      const { listen } = normalizeFieldKey(rawKey);
-      for (const key of listen) {
-        try { JF.listenFromField(key, 'change', handler); } catch (_){}
-        try { JF.listenFromField(key, 'keyup',  handler); } catch (_){}
+    function attachReactiveListeners(JF, settings) {
+      const { s, e, n } = resolveTargets(settings);
+      const pairs = [
+        [s, (v)=> setBounds({ startDate: v })],
+        [e, (v)=> setBounds({ endDate: v })],
+        [n, (v)=> setBounds({ totalWorkers: Number(v)||0 })],
+      ];
+      for (const [tgt, handler] of pairs) {
+        const keys = [];
+        if (tgt.id)   keys.push(tgt.id);
+        if (tgt.name) keys.push(tgt.name);
+        for (const key of keys) {
+          try { JF.listenFromField(key, 'change', handler); } catch (_) {}
+          try { JF.listenFromField(key, 'keyup',  handler); } catch (_) {}
+        }
       }
     }
     
@@ -528,6 +576,7 @@
     </script>
 </body>
 </html>
+
 
 
 
