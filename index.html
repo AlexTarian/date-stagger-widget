@@ -21,13 +21,9 @@
         this.init = init;
         this.getData = getData;
         const otherFields = [
-          'control_textbox',
-          'control_textarea',
-          'control_dropdown',
-          'control_datetime',
-          'control_phone',
-          'control_fullname',
-          'control_email'
+          'startDate',
+          'endDate',
+          'workers'
         ]
 
         function getFieldsByX(){
@@ -48,6 +44,7 @@
         function init(formData) {
           console.log("Hello world!");
           getFieldsByX()
+          getFieldsByY()
         }
 
         // get widget data
@@ -72,4 +69,5 @@
     </script>
   </body>
 </html>
+
 
