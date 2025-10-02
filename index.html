@@ -5,7 +5,6 @@
     <meta http-equiv="cache-control" content="no-cache" />
     <meta http-equiv="expires" content="0" />
     <meta http-equiv="pragma" content="no-cache" />
-
     <!-- Jotform bridge -->
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
 
@@ -89,7 +88,7 @@
 
   <body>
     <div id="reviewArea" style="font:14px system-ui; margin:8px 0;">
-      <div><strong>Version</strong> 15</div>
+      <div><strong>Version</strong> 16</div>
       <div>Start Date: <span id="ui-start">—</span></div>
       <div>End Date: <span id="ui-end">—</span></div>
       <div>Workers: <span id="ui-workers">—</span></div>
@@ -129,32 +128,54 @@
         try { JFCustomWidget.listenFromField(name, 'keyup',  handler); } catch(_){}
       }
 
+      // Coerce Jotform's event envelope into a simple key→value map
+      function coerceJFMap(res){
+        // Already a plain object with direct keys? keep it
+        if (res && res.type !== 'event:receiver') return res || {};
+        const out = {};
+        const arr = res && Array.isArray(res.data) ? res.data : [];
+        for (const row of arr) {
+          const key = String(row.selector ?? row.name ?? '');
+          if (!key) continue;
+          let val = row.value;
+          // Some APIs wrap values as { value: "…" }
+          if (val && typeof val === 'object' && 'value' in val) val = val.value;
+          out[key] = val;
+        }
+        return out;
+      }
+
       function fetchInitial({ sQ, eQ, nQ, sName, eName, nName }, done){
         const ids   = [sQ, eQ, nQ].filter(Boolean);
         const names = [sName, eName, nName].filter(Boolean);
         const result = { startDate:'', endDate:'', totalWorkers:0 };
-
+      
         const setFrom = (map, tag) => {
-          if (sQ && map && map[sQ] != null) result.startDate = unwrap(map[sQ]) || result.startDate;
-          if (eQ && map && map[eQ] != null) result.endDate   = unwrap(map[eQ]) || result.endDate;
-          if (nQ && map && map[nQ] != null) result.totalWorkers = Number(unwrap(map[nQ]) || result.totalWorkers || 0);
-          if (sName && map && map[sName] != null) result.startDate = unwrap(map[sName]) || result.startDate;
-          if (eName && map && map[eName] != null) result.endDate   = unwrap(map[eName]) || result.endDate;
-          if (nName && map && map[nName] != null) result.totalWorkers = Number(unwrap(map[nName]) || result.totalWorkers || 0);
+          // unwrap event envelope if present
+          const m = coerceJFMap(map) || {};
+          // Prefer IDs
+          if (sQ    && m[sQ]    != null) result.startDate    = m[sQ]    || result.startDate;
+          if (eQ    && m[eQ]    != null) result.endDate      = m[eQ]    || result.endDate;
+          if (nQ    && m[nQ]    != null) result.totalWorkers = Number(m[nQ] || result.totalWorkers || 0);
+          // Then names (if supplied)
+          if (sName && m[sName] != null) result.startDate    = m[sName] || result.startDate;
+          if (eName && m[eName] != null) result.endDate      = m[eName] || result.endDate;
+          if (nName && m[nName] != null) result.totalWorkers = Number(m[nName] || result.totalWorkers || 0);
         };
-
+      
         const tryById = (next) => {
           if (!ids.length || typeof JFCustomWidget.getFieldsValueById !== 'function') return next();
           JFCustomWidget.getFieldsValueById(ids, (map)=>{ setFrom(map, 'byId'); next(); });
         };
+      
         const tryByName = (next) => {
           if (!names.length || typeof JFCustomWidget.getFieldsValueByName !== 'function') return next();
           JFCustomWidget.getFieldsValueByName(names, (map)=>{ setFrom(map, 'byName'); next(); });
         };
-
+      
         tryById(()=> tryByName(()=> {
           if (result.startDate || result.endDate || result.totalWorkers) return done(result, 'immediate');
-          // short bounded poll in case host populates late
+          // short bounded poll (in case host fills a beat late)
           let tries = 12; // ~3.6s
           (function tick(){
             if (--tries < 0) return done(result, 'empty');
@@ -165,6 +186,7 @@
           })();
         }));
       }
+
 
       JFCustomWidget.subscribe("ready", function(){
         log('ready');
@@ -212,3 +234,4 @@
     <!-- ========== /WIDGET LOGIC ========== -->
   </body>
 </html>
+
