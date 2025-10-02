@@ -9,7 +9,7 @@
   <style></style>
   <body>
     <div id="reviewArea">
-      <div>Version 10 </div>
+      <div>Version 11 </div>
       <div>Start Date: <span id="ui-start">—</span></div>
       <div>End Date: <span id="ui-end">—</span></div>
       <div>Workers: <span id="ui-workers">—</span></div>
@@ -92,6 +92,24 @@
             if (endDate   !== undefined)  document.getElementById('ui-end').textContent     = endDate   || '—';
             if (totalWorkers !== undefined) document.getElementById('ui-workers').textContent = String(totalWorkers ?? '—');
           }
+
+          function applyHostValues({ startDate, endDate, totalWorkers }) {
+            if (startDate !== undefined)    setBounds({ startDate });
+            if (endDate !== undefined)      setBounds({ endDate });
+            if (totalWorkers !== undefined) setBounds({ totalWorkers });
+            // setBounds() already renders + validates in your code
+          }
+
+          function pushValue(valid, message) {
+            try {
+              JFCustomWidget.sendData({
+                value: JSON.stringify(serialize()), // your array of {date,count}
+                valid,
+                message: message || ''
+              });
+            } catch(_) {}
+          }
+          window.sendValue = ({ valid, message }) => pushValue(valid, message);
           
           updateReviewArea({ startDate, endDate, totalWorkers }); // <-- update UI
           applyHostValues({ startDate, endDate, totalWorkers });  // <-- your widget state
@@ -118,6 +136,7 @@
     </script>
   </body>
 </html>
+
 
 
 
