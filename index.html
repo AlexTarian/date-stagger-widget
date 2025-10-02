@@ -88,7 +88,7 @@
 
   <body>
     <div id="reviewArea" style="font:14px system-ui; margin:8px 0;">
-      <div><strong>Version</strong> 19</div>
+      <div><strong>Version</strong> 20</div>
       <div>Start Date: <span id="ui-start">—</span></div>
       <div>End Date: <span id="ui-end">—</span></div>
       <div>Workers: <span id="ui-workers">—</span></div>
@@ -300,6 +300,11 @@
           // Add resilient watchers for date fields (covers cases where no events fire)
           const stopWatchStart = startValueWatcher(s.qid, { intervalMs: 400, maxIdleMs: 300000 }, (v)=> setState({ startDate: v }));
           const stopWatchEnd   = startValueWatcher(e.qid, { intervalMs: 400, maxIdleMs: 300000 }, (v)=> setState({ endDate: v }));
+
+          const stopWatchWorkers = startValueWatcher(n.qid, { intervalMs: 400, maxIdleMs: 300000 }, (v)=> {
+            const nVal = Number(v);
+            if (!Number.isNaN(nVal)) setState({ totalWorkers: nVal });
+          });
           
           // (optional) if you *expect* Workers to be prefilled and want to catch it later,
           // add a one-time delayed read since your logs show "" at load:
@@ -324,6 +329,7 @@
     <!-- ========== /WIDGET LOGIC ========== -->
   </body>
 </html>
+
 
 
 
