@@ -9,10 +9,10 @@
   <style></style>
   <body>
     <div id="reviewArea">
-      <div>Version 7 </div>
-      <div>Start Date: </div>
-      <div>End Date: </div>
-      <div>Workers: </div>
+      <div>Version 9 </div>
+      <div>Start Date: <span id="ui-start">—</span></div>
+      <div>End Date: <span id="ui-end">—</span></div>
+      <div>Workers: <span id="ui-workers">—</span></div>
     </div>
     <script type="text/javascript">
       function tableExampleForCleaningDepot() {
@@ -71,17 +71,48 @@
 
       // always subscribe to ready event and implement widget related code
       // inside callback function , it is the best practice while developing widgets
-      JFCustomWidget.subscribe("ready", function (data) {
-        var widget = new tableExampleForCleaningDepot();
-        widget.init(data);
-
-        JFCustomWidget.subscribe("submit", function () {
-          JFCustomWidget.sendSubmit(widget.getData());
+      JFCustomWidget.subscribe("ready", function () {
+        const unwrap = v => (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+        const qid = key => String(JFCustomWidget.getWidgetSetting(key) || '').replace(/^input_/, '');
+      
+        const sQ = qid('startFieldId');
+        const eQ = qid('endFieldId');
+        const nQ = qid('totalWorkersFieldId');
+      
+        // Initial pull
+        JFCustomWidget.getFieldsValueById([sQ, eQ, nQ], (map) => {
+          const unwrap = v => (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+        
+          const startDate    = unwrap(map[sQ]) || '';
+          const endDate      = unwrap(map[eQ]) || '';
+          const totalWorkers = Number(unwrap(map[nQ]) || 0);
+        
+          updateReviewArea({ startDate, endDate, totalWorkers }); // <-- update UI
+          applyHostValues({ startDate, endDate, totalWorkers });  // <-- your widget state
+          pushValue(validate().length === 0);                     // <-- send to Jotform
+        });
+        
+        // Live updates
+        const listenQID = (q, h) => {
+          const id = 'input_' + q;
+          try { JFCustomWidget.listenFromField(id, 'change', h); } catch(_){}
+          try { JFCustomWidget.listenFromField(id, 'keyup',  h); } catch(_){}
+        };
+        listenQID(sQ, (v)=> { updateReviewArea({ startDate: v });    setBounds({ startDate: v }); });
+        listenQID(eQ, (v)=> { updateReviewArea({ endDate: v });      setBounds({ endDate: v }); });
+        listenQID(nQ, (v)=> { const n = Number(v)||0; updateReviewArea({ totalWorkers: n }); setBounds({ totalWorkers: n }); });
+      
+        // Submit hook
+        JFCustomWidget.subscribe('submit', function(){
+          const errs = validate();
+          JFCustomWidget.sendSubmit({ valid: errs.length===0, value: JSON.stringify(serialize()) });
         });
       });
+
     </script>
   </body>
 </html>
+
 
 
 
