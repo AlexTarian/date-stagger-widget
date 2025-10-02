@@ -9,7 +9,7 @@
   <style></style>
   <body>
     <div id="reviewArea">
-      <div>Version 6 </div>
+      <div>Version 7 </div>
       <div>Start Date: </div>
       <div>End Date: </div>
       <div>Workers: </div>
@@ -41,31 +41,23 @@
         }
 
         function getStartDate(){
-          console.log("Running getStartDate")
-          JFCustomWidget.getFieldsValueById(start, function(res){
-              console.log(`start date is ${res}`)
-          })
+          console.log(JFCustomWidget.getFieldsValueById(start));
         }
         function getEndDate(){
-          console.log("Running getEndDate")
-          JFCustomWidget.getFieldsValueById(end, function(res){
-              console.log(`end date is ${res}`)
-          })
+          console.log(JFCustomWidget.getFieldsValueById(end), (map) => {
+          });
         }
         function getWorkers(){
-          console.log("Running getWorkers")
-          JFCustomWidget.getFieldsValueById(workers, function(res){
-              console.log(`worker count is ${res}`)
-          })
+          console.log(JFCustomWidget.getFieldsValueById(workers));
         }
 
         // initialization of the widget
         function init(formData) {
           console.log("Hello world!");
-          getFieldsByX()
-          getStartDate()
-          getEndDate()
-          getWorkers()
+          getFieldsByX();
+          getStartDate();
+          getEndDate();
+          getWorkers();
         }
 
         // get widget data
@@ -90,6 +82,7 @@
     </script>
   </body>
 </html>
+
 
 
 
