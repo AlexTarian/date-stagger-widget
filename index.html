@@ -88,7 +88,7 @@
 
   <body>
     <div id="reviewArea" style="font:14px system-ui; margin:8px 0;">
-      <div><strong>Version</strong> 18</div>
+      <div><strong>Version</strong> 19</div>
       <div>Start Date: <span id="ui-start">—</span></div>
       <div>End Date: <span id="ui-end">—</span></div>
       <div>Workers: <span id="ui-workers">—</span></div>
@@ -153,6 +153,41 @@
           name = s || null;
           listenKeys = name ? [name] : [];
           return { qid, name, listenKeys };
+        }
+
+        // Read a single field by QID and return plain value (handles event envelope)
+        function readByIdOnce(qid, cb){
+          try {
+            JFCustomWidget.getFieldsValueById([qid], (map)=>{
+              const m = coerceJFMap(map) || {};
+              cb(m[qid] ?? '');
+            });
+          } catch (_) { cb(''); }
+        }
+        
+        // Start a lightweight watcher that checks a QID every N ms and calls onChange when it actually changes
+        function startValueWatcher(qid, { intervalMs = 400, maxIdleMs = 300000 }, onChange){
+          if (!qid) return () => {};
+          let last = undefined;
+          let stopped = false;
+          let idleMs = 0;
+        
+          const tick = () => {
+            if (stopped) return;
+            readByIdOnce(qid, (val) => {
+              if (val !== last) {
+                last = val;
+                idleMs = 0;
+                try { onChange(val); } catch (_) {}
+              } else {
+                idleMs += intervalMs;
+                if (idleMs >= maxIdleMs) { stopped = true; return; }
+              }
+              setTimeout(tick, intervalMs);
+            });
+          };
+          tick();
+          return () => { stopped = true; };
         }
       
         // Listen helper for multiple keys (base + _pick + unique names)
@@ -261,6 +296,21 @@
           wireDate(s.qid, s.listenKeys, (v)=> setState({ startDate: v }));
           wireDate(e.qid, e.listenKeys, (v)=> setState({ endDate: v }));
           wireNumber(n.listenKeys,      (v)=> setState({ totalWorkers: v }));
+          
+          // Add resilient watchers for date fields (covers cases where no events fire)
+          const stopWatchStart = startValueWatcher(s.qid, { intervalMs: 400, maxIdleMs: 300000 }, (v)=> setState({ startDate: v }));
+          const stopWatchEnd   = startValueWatcher(e.qid, { intervalMs: 400, maxIdleMs: 300000 }, (v)=> setState({ endDate: v }));
+          
+          // (optional) if you *expect* Workers to be prefilled and want to catch it later,
+          // add a one-time delayed read since your logs show "" at load:
+          setTimeout(()=> {
+            if (state.totalWorkers === 0) {
+              readByIdOnce(n.qid, (v)=> {
+                const nVal = Number(v);
+                if (!Number.isNaN(nVal) && nVal > 0) setState({ totalWorkers: nVal });
+              });
+            }
+          }, 800);
       
           log(`listening on → start:[${(s.listenKeys||[]).join(', ')}] end:[${(e.listenKeys||[]).join(', ')}] workers:[${(n.listenKeys||[]).join(', ')}]`);
       
@@ -274,5 +324,6 @@
     <!-- ========== /WIDGET LOGIC ========== -->
   </body>
 </html>
+
 
 
