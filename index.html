@@ -88,7 +88,7 @@
 
   <body>
     <div id="reviewArea" style="font:14px system-ui; margin:8px 0;">
-      <div><strong>Version</strong> 21</div>
+      <div><strong>Version</strong> 22</div>
       <div>Start Date: <span id="ui-start">—</span></div>
       <div>End Date: <span id="ui-end">—</span></div>
       <div>Workers: <span id="ui-workers">—</span></div>
@@ -173,12 +173,35 @@
           return () => { stopped = true; };
         }
       
-        // Dates: any event → re-fetch authoritative value by QID
+        // Dates: use event payload immediately (if it looks like a date), and also refresh by QID
         function wireDate(qid, listenKeysArr, setter){
           if (!qid) return;
-          const refresh = () => readByIdOnce(qid, (val)=> setter(val || ''));
-          listenKeys(listenKeysArr, () => refresh());
+        
+          const isLikelyDate = (s) => typeof s === 'string' && /\d/.test(s) && s.length >= 8;
+        
+          const refresh = () => {
+            try {
+              JFCustomWidget.getFieldsValueById([qid], (map)=>{
+                const m = coerceJFMap(map) || {};
+                const val = m[qid] ?? '';
+                if (val != null) setter(val || '');
+              });
+            } catch (_){}
+          };
+        
+          // immediate from event + canonical refresh
+          (listenKeysArr || []).forEach((key)=>{
+            const handler = (raw) => {
+              const v = coerceValue(raw);
+              if (isLikelyDate(v)) setter(String(v)); // update UI NOW
+              refresh(); // confirm with authoritative value
+            };
+            try { JFCustomWidget.listenFromField(key, 'change', handler); } catch(_){}
+            try { JFCustomWidget.listenFromField(key, 'keyup',  handler); } catch(_){}
+            try { JFCustomWidget.listenFromField(key, 'blur',   handler); } catch(_){}
+          });
         }
+
       
         // Numbers: event → use payload; also watch by ID to catch late prefills
         function wireNumber(qid, listenKeysArr, setter){
@@ -233,11 +256,48 @@
       
           log(`normalized (IDs only) → sQ=${s.qid} eQ=${e.qid} nQ=${n.qid}`);
           log(`listening keys → start:[${(s.listenKeys||[]).join(', ')}] end:[${(e.listenKeys||[]).join(', ')}] workers:[${(n.listenKeys||[]).join(', ')}]`);
+
+          // TEMP: heartbeat—log by-ID values for 8s
+          (function heartbeat(qids, ms=1000, ticks=8){
+            let n=0;
+            const t = () => {
+              if (n++ >= ticks) return;
+              (qids || []).forEach(qid => {
+                if (!qid) return;
+                try {
+                  JFCustomWidget.getFieldsValueById([qid], (map)=>{
+                    const m = coerceJFMap(map) || {};
+                    const v = m[qid];
+                    const msg = (typeof v === 'object' && v && 'value' in v) ? v.value : v;
+                    // write straight into the on-page log
+                    const el = document.getElementById('ui-log');
+                    const line = `[HB] qid=${qid} → ${JSON.stringify(msg)}`;
+                    console.log(line);
+                    if (el) el.textContent += (el.textContent?'\n':'') + line;
+                  });
+                } catch(_){}
+              });
+              setTimeout(t, ms);
+            };
+            t();
+          })([s.qid, e.qid, n.qid], 1000, 8);
+
       
           // Initial by-ID pull
           fetchInitialById({ sQ: s.qid, eQ: e.qid, nQ: n.qid }, (vals, how)=>{
             log(`initial resolved (${how}) → ${JSON.stringify(vals)}`);
             setState(vals);
+            // Late double-pull for Workers by ID (catches slow prefills)
+            if (n.qid) {
+              setTimeout(() => readByIdOnce(n.qid, (v)=>{
+                const nVal = Number(v);
+                if (!Number.isNaN(nVal) && nVal > 0) setState({ totalWorkers: nVal });
+              }), 300);
+              setTimeout(() => readByIdOnce(n.qid, (v)=>{
+                const nVal = Number(v);
+                if (!Number.isNaN(nVal) && nVal > 0) setState({ totalWorkers: nVal });
+              }), 900);
+            }
           });
       
           // Live wiring
@@ -265,6 +325,7 @@
     <!-- ========== /WIDGET LOGIC ========== -->
   </body>
 </html>
+
 
 
 
