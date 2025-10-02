@@ -9,7 +9,7 @@
   <style></style>
   <body>
     <div id="reviewArea">
-      <div>Version 9 </div>
+      <div>Version 10 </div>
       <div>Start Date: <span id="ui-start">—</span></div>
       <div>End Date: <span id="ui-end">—</span></div>
       <div>Workers: <span id="ui-workers">—</span></div>
@@ -86,7 +86,13 @@
           const startDate    = unwrap(map[sQ]) || '';
           const endDate      = unwrap(map[eQ]) || '';
           const totalWorkers = Number(unwrap(map[nQ]) || 0);
-        
+
+          function updateReviewArea({ startDate, endDate, totalWorkers }) {
+            if (startDate !== undefined)  document.getElementById('ui-start').textContent   = startDate || '—';
+            if (endDate   !== undefined)  document.getElementById('ui-end').textContent     = endDate   || '—';
+            if (totalWorkers !== undefined) document.getElementById('ui-workers').textContent = String(totalWorkers ?? '—');
+          }
+          
           updateReviewArea({ startDate, endDate, totalWorkers }); // <-- update UI
           applyHostValues({ startDate, endDate, totalWorkers });  // <-- your widget state
           pushValue(validate().length === 0);                     // <-- send to Jotform
@@ -112,6 +118,7 @@
     </script>
   </body>
 </html>
+
 
 
 
