@@ -88,7 +88,7 @@
 
   <body>
     <div id="reviewArea" style="font:14px system-ui; margin:8px 0;">
-      <div><strong>Version</strong> 16</div>
+      <div><strong>Version</strong> 18</div>
       <div>Start Date: <span id="ui-start">—</span></div>
       <div>End Date: <span id="ui-end">—</span></div>
       <div>Workers: <span id="ui-workers">—</span></div>
@@ -96,142 +96,183 @@
 
     <!-- ========== WIDGET LOGIC ========== -->
     <script>
-    (function(){
-      const $ = (id) => document.getElementById(id);
-      const log = (m) => { const el = $('ui-log'); if (el) el.textContent += (el.textContent?'\n':'') + m; console.log(m); };
-      const unwrap = v => (v && typeof v === 'object' && 'value' in v) ? v.value : v;
-      const toQID  = v => String(v || '').replace(/^input_/, '').trim(); // "input_6" -> "6"
-
-      // mirror to UI + keep a tiny state
-      const state = { startDate:'', endDate:'', totalWorkers:0 };
-      function updateUI(){ $('ui-start').textContent = state.startDate || '—'; $('ui-end').textContent = state.endDate || '—'; $('ui-workers').textContent = String(state.totalWorkers || '—'); }
-      function setState(patch){
-        if ('startDate' in patch)    state.startDate = patch.startDate || '';
-        if ('endDate' in patch)      state.endDate = patch.endDate || '';
-        if ('totalWorkers' in patch) state.totalWorkers = Number(patch.totalWorkers) || 0;
-        updateUI(); pushValue(true);
-      }
-      function serialize(){ return { ...state }; }
-      function pushValue(valid, message){
-        try { JFCustomWidget.sendData({ value: JSON.stringify(serialize()), valid, message: message || '' }); } catch(e){}
-      }
-
-      function listenQID(qid, handler){
-        if (!qid) return;
-        const id = 'input_' + qid;
-        try { JFCustomWidget.listenFromField(id, 'change', handler); } catch(_){}
-        try { JFCustomWidget.listenFromField(id, 'keyup',  handler); } catch(_){}
-      }
-      function listenName(name, handler){
-        if (!name) return;
-        try { JFCustomWidget.listenFromField(name, 'change', handler); } catch(_){}
-        try { JFCustomWidget.listenFromField(name, 'keyup',  handler); } catch(_){}
-      }
-
-      // Coerce Jotform's event envelope into a simple key→value map
-      function coerceJFMap(res){
-        // Already a plain object with direct keys? keep it
-        if (res && res.type !== 'event:receiver') return res || {};
-        const out = {};
-        const arr = res && Array.isArray(res.data) ? res.data : [];
-        for (const row of arr) {
-          const key = String(row.selector ?? row.name ?? '');
-          if (!key) continue;
-          let val = row.value;
-          // Some APIs wrap values as { value: "…" }
-          if (val && typeof val === 'object' && 'value' in val) val = val.value;
-          out[key] = val;
+      (function(){
+        const $ = (id) => document.getElementById(id);
+        const log = (m) => { const el = $('ui-log'); if (el) el.textContent += (el.textContent?'\n':'') + m; console.log(m); };
+      
+        // --- small utils ---
+        const unwrap = v => (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+      
+        // Convert the event envelope Jotform returns into a simple map: key -> value
+        function coerceJFMap(res){
+          if (res && res.type !== 'event:receiver') return res || {};
+          const out = {};
+          const arr = res && Array.isArray(res.data) ? res.data : [];
+          for (const row of arr) {
+            const key = String(row.selector ?? row.name ?? '');
+            if (!key) continue;
+            let val = row.value;
+            if (val && typeof val === 'object' && 'value' in val) val = val.value;
+            out[key] = val;
+          }
+          return out;
         }
-        return out;
-      }
-
-      function fetchInitial({ sQ, eQ, nQ, sName, eName, nName }, done){
-        const ids   = [sQ, eQ, nQ].filter(Boolean);
-        const names = [sName, eName, nName].filter(Boolean);
-        const result = { startDate:'', endDate:'', totalWorkers:0 };
       
-        const setFrom = (map, tag) => {
-          // unwrap event envelope if present
-          const m = coerceJFMap(map) || {};
-          // Prefer IDs
-          if (sQ    && m[sQ]    != null) result.startDate    = m[sQ]    || result.startDate;
-          if (eQ    && m[eQ]    != null) result.endDate      = m[eQ]    || result.endDate;
-          if (nQ    && m[nQ]    != null) result.totalWorkers = Number(m[nQ] || result.totalWorkers || 0);
-          // Then names (if supplied)
-          if (sName && m[sName] != null) result.startDate    = m[sName] || result.startDate;
-          if (eName && m[eName] != null) result.endDate      = m[eName] || result.endDate;
-          if (nName && m[nName] != null) result.totalWorkers = Number(m[nName] || result.totalWorkers || 0);
-        };
+        // Coerce event payloads that may be envelopes or plain strings
+        function coerceValue(v){
+          if (v && typeof v === 'object') {
+            if ('value' in v) return v.value;
+            if ('data' in v && Array.isArray(v.data) && v.data[0] && 'value' in v.data[0]) return v.data[0].value;
+          }
+          return v;
+        }
       
-        const tryById = (next) => {
-          if (!ids.length || typeof JFCustomWidget.getFieldsValueById !== 'function') return next();
-          JFCustomWidget.getFieldsValueById(ids, (map)=>{ setFrom(map, 'byId'); next(); });
-        };
+        // Accept "4", "input_4", "input_4_pick", or unique name; return qid + keys to listen on
+        function normalizeParam(raw){
+          const s = String((raw && (raw.value ?? raw)) || '').trim();
+          let qid = null, name = null, listenKeys = [];
       
-        const tryByName = (next) => {
-          if (!names.length || typeof JFCustomWidget.getFieldsValueByName !== 'function') return next();
-          JFCustomWidget.getFieldsValueByName(names, (map)=>{ setFrom(map, 'byName'); next(); });
-        };
+          // input_4 / input_4_pick / #input_4_pick
+          const m = s.replace(/^#/, '').match(/^input_(\d+)(?:_pick)?$/i);
+          if (m) {
+            qid = m[1]; // "4"
+            const base = `input_${qid}`;
+            listenKeys = [base, `${base}_pick`];
+            return { qid, name: null, listenKeys };
+          }
       
-        tryById(()=> tryByName(()=> {
-          if (result.startDate || result.endDate || result.totalWorkers) return done(result, 'immediate');
-          // short bounded poll (in case host fills a beat late)
-          let tries = 12; // ~3.6s
-          (function tick(){
-            if (--tries < 0) return done(result, 'empty');
-            tryById(()=> tryByName(()=> {
-              if (result.startDate || result.endDate || result.totalWorkers) return done(result, 'polled');
-              setTimeout(tick, 300);
-            }));
-          })();
-        }));
-      }
-
-
-      JFCustomWidget.subscribe("ready", function(){
-        log('ready');
-
-        // read settings; accept either QID (6 / input_6) or unique name
-        const sRaw = JFCustomWidget.getWidgetSetting('startFieldId');
-        const eRaw = JFCustomWidget.getWidgetSetting('endFieldId');
-        const nRaw = JFCustomWidget.getWidgetSetting('totalWorkersFieldId');
-
-        const normalizeKey = (raw)=>{
-          const v = unwrap(raw);
-          if (!v) return { qid:null, name:null };
-          const q = toQID(v);
-          if (/^\d+$/.test(q)) return { qid:q, name:null };
-          return { qid:null, name:q }; // treat anything else as a unique name
-        };
-
-        const s = normalizeKey(sRaw);
-        const e = normalizeKey(eRaw);
-        const n = normalizeKey(nRaw);
-
-        log(`settings raw → start=${JSON.stringify(sRaw)} end=${JSON.stringify(eRaw)} workers=${JSON.stringify(nRaw)}`);
-        log(`normalized   → sQ=${s.qid} eQ=${e.qid} nQ=${n.qid} | sName=${s.name} eName=${e.name} nName=${n.name}`);
-
-        fetchInitial(
-          { sQ:s.qid, eQ:e.qid, nQ:n.qid, sName:s.name, eName:e.name, nName:n.name },
-          (vals, how) => { log(`initial resolved (${how}) → ${JSON.stringify(vals)}`); setState(vals); }
-        );
-
-        // live sync (IDs and/or names)
-        listenQID(s.qid, (v)=> setState({ startDate: v }));
-        listenQID(e.qid, (v)=> setState({ endDate: v }));
-        listenQID(n.qid, (v)=> setState({ totalWorkers: Number(v)||0 }));
-
-        listenName(s.name, (v)=> setState({ startDate: v }));
-        listenName(e.name, (v)=> setState({ endDate: v }));
-        listenName(n.name, (v)=> setState({ totalWorkers: Number(v)||0 }));
-
-        JFCustomWidget.subscribe("submit", function(){
-          JFCustomWidget.sendSubmit({ valid: true, value: JSON.stringify(serialize()) });
+          // pure number "4"
+          if (/^\d+$/.test(s)) {
+            qid = s;
+            const base = `input_${qid}`;
+            listenKeys = [base, `${base}_pick`];
+            return { qid, name: null, listenKeys };
+          }
+      
+          // treat anything else as unique name
+          name = s || null;
+          listenKeys = name ? [name] : [];
+          return { qid, name, listenKeys };
+        }
+      
+        // Listen helper for multiple keys (base + _pick + unique names)
+        function listenKeys(keys, handler){
+          (keys || []).forEach((key)=>{
+            try { JFCustomWidget.listenFromField(key, 'change', v => handler(coerceValue(v))); } catch (_){}
+            try { JFCustomWidget.listenFromField(key, 'keyup',  v => handler(coerceValue(v))); } catch (_){}
+            try { JFCustomWidget.listenFromField(key, 'blur',   v => handler(coerceValue(v))); } catch (_){}
+          });
+        }
+      
+        // Dates: on any event → refetch authoritative value by QID (datepicker can be quirky)
+        function wireDate(qid, listenKeysArr, setter){
+          if (!qid) return;
+          const refresh = () => {
+            try {
+              JFCustomWidget.getFieldsValueById([qid], (map)=>{
+                const m = coerceJFMap(map) || {};
+                setter(m[qid] ?? '');
+              });
+            } catch (_){}
+          };
+          listenKeys(listenKeysArr, () => refresh());
+        }
+      
+        // Numbers: event value is usually fine directly
+        function wireNumber(listenKeysArr, setter){
+          listenKeys(listenKeysArr, (v) => setter(Number(v) || 0));
+        }
+      
+        // --- minimal state + emit ---
+        const state = { startDate:'', endDate:'', totalWorkers:0 };
+        function updateUI(){
+          $('ui-start').textContent   = state.startDate || '—';
+          $('ui-end').textContent     = state.endDate   || '—';
+          $('ui-workers').textContent = String(state.totalWorkers || '—');
+        }
+        function setState(patch){
+          if ('startDate' in patch)    state.startDate = patch.startDate || '';
+          if ('endDate' in patch)      state.endDate = patch.endDate || '';
+          if ('totalWorkers' in patch) state.totalWorkers = Number(patch.totalWorkers) || 0;
+          updateUI();
+          pushValue(true);
+        }
+        function serialize(){ return { ...state }; }
+        function pushValue(valid, message){
+          try { JFCustomWidget.sendData({ value: JSON.stringify(serialize()), valid, message: message || '' }); } catch(e){}
+        }
+      
+        // Try byId first, then byName, then short poll
+        function fetchInitial({ sQ, eQ, nQ, sName, eName, nName }, done){
+          const ids   = [sQ, eQ, nQ].filter(Boolean);
+          const names = [sName, eName, nName].filter(Boolean);
+          const result = { startDate:'', endDate:'', totalWorkers:0 };
+      
+          const setFrom = (map, tag) => {
+            const m = coerceJFMap(map) || {};
+            if (sQ    && m[sQ]    != null) result.startDate    = m[sQ]    || result.startDate;
+            if (eQ    && m[eQ]    != null) result.endDate      = m[eQ]    || result.endDate;
+            if (nQ    && m[nQ]    != null) result.totalWorkers = Number(m[nQ] || result.totalWorkers || 0);
+            if (sName && m[sName] != null) result.startDate    = m[sName] || result.startDate;
+            if (eName && m[eName] != null) result.endDate      = m[eName] || result.endDate;
+            if (nName && m[nName] != null) result.totalWorkers = Number(m[nName] || result.totalWorkers || 0);
+          };
+      
+          const tryById = (next) => {
+            if (!ids.length || typeof JFCustomWidget.getFieldsValueById !== 'function') return next();
+            JFCustomWidget.getFieldsValueById(ids, (map)=>{ setFrom(map, 'byId'); next(); });
+          };
+          const tryByName = (next) => {
+            if (!names.length || typeof JFCustomWidget.getFieldsValueByName !== 'function') return next();
+            JFCustomWidget.getFieldsValueByName(names, (map)=>{ setFrom(map, 'byName'); next(); });
+          };
+      
+          tryById(()=> tryByName(()=> {
+            if (result.startDate || result.endDate || result.totalWorkers) return done(result, 'immediate');
+            let tries = 12; // ~3.6s
+            (function tick(){
+              if (--tries < 0) return done(result, 'empty');
+              tryById(()=> tryByName(()=> {
+                if (result.startDate || result.endDate || result.totalWorkers) return done(result, 'polled');
+                setTimeout(tick, 300);
+              }));
+            })();
+          }));
+        }
+      
+        // --- main wiring ---
+        JFCustomWidget.subscribe("ready", function(){
+          log('ready');
+      
+          // read settings (IDs or names)
+          const s = normalizeParam(JFCustomWidget.getWidgetSetting('startFieldId'));
+          const e = normalizeParam(JFCustomWidget.getWidgetSetting('endFieldId'));
+          const n = normalizeParam(JFCustomWidget.getWidgetSetting('totalWorkersFieldId'));
+      
+          log(`normalized → sQ=${s.qid} eQ=${e.qid} nQ=${n.qid} | sListen=${(s.listenKeys||[]).join('+')} eListen=${(e.listenKeys||[]).join('+')} nListen=${(n.listenKeys||[]).join('+')}`);
+      
+          // initial pull
+          fetchInitial(
+            { sQ:s.qid, eQ:e.qid, nQ:n.qid, sName:s.name, eName:e.name, nName:n.name },
+            (vals, how) => { log(`initial resolved (${how}) → ${JSON.stringify(vals)}`); setState(vals); }
+          );
+      
+          // live sync (use listenKeys from normalizeParam)
+          wireDate(s.qid, s.listenKeys, (v)=> setState({ startDate: v }));
+          wireDate(e.qid, e.listenKeys, (v)=> setState({ endDate: v }));
+          wireNumber(n.listenKeys,      (v)=> setState({ totalWorkers: v }));
+      
+          log(`listening on → start:[${(s.listenKeys||[]).join(', ')}] end:[${(e.listenKeys||[]).join(', ')}] workers:[${(n.listenKeys||[]).join(', ')}]`);
+      
+          // submit
+          JFCustomWidget.subscribe("submit", function(){
+            JFCustomWidget.sendSubmit({ valid: true, value: JSON.stringify(serialize()) });
+          });
         });
-      });
-    })();
-    </script>
+      })();
+      </script>
     <!-- ========== /WIDGET LOGIC ========== -->
   </body>
 </html>
+
 
