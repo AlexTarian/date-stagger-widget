@@ -2,313 +2,141 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="cache-control" content="no-cache" />
-    <meta http-equiv="expires" content="0" />
-    <meta http-equiv="pragma" content="no-cache" />
-    <!-- Jotform bridge -->
     <script src="https://js.jotform.com/JotFormCustomWidget.min.js"></script>
-
-    <!-- ========== ULTRA LOGGER (keep first) ========== -->
-    <script>
-    (function(){
-      const ensureLogPane = () => {
-        let pre = document.getElementById('ui-log');
-        if (!pre) {
-          pre = document.createElement('pre');
-          pre.id = 'ui-log';
-          pre.style.cssText = 'margin-top:8px;background:#f6f8fa;padding:8px;border-radius:8px;font:12px/1.45 monospace;white-space:pre-wrap;max-height:300px;overflow:auto;';
-          document.body && document.body.appendChild(pre);
-        }
-        return pre;
-      };
-      const ts  = () => new Date().toISOString();
-      const add = (line) => { console.log(line); (ensureLogPane()).textContent += ((ensureLogPane()).textContent? '\n':'') + line; };
-
-      // Global JS error visibility
-      window.addEventListener('error', e => add(`[${ts()}] JS error: ${e.message}`));
-      window.addEventListener('unhandledrejection', e => add(`[${ts()}] Promise error: ${e.reason && e.reason.message || e.reason}`));
-
-      // Page/env probes
-      add(`[${ts()}] page loaded; href=${location.href} referrer=${document.referrer}`);
-      add(`[${ts()}] JF present now: ${!!window.JFCustomWidget}`);
-
-      function safeJson(x){ try { return JSON.stringify(x, null, 2); } catch { return String(x); } }
-
-      // Wrap JF API with verbose wrappers once it exists
-      (function waitJF(tries=40){
-        if (!window.JFCustomWidget) { if (tries<=0){ add(`[${ts()}] JF never appeared`); return; } return setTimeout(()=>waitJF(tries-1), 100); }
-        const JF = window.JFCustomWidget;
-        const orig = {};
-        const capture = (n)=>{ try { orig[n] = JF[n]; } catch(_){} };
-        ['subscribe','getWidgetSetting','getWidgetSettings','getFieldsValueById','getFieldsValueByName','listenFromField','sendData','sendSubmit'].forEach(capture);
-
-        if (typeof orig.subscribe === 'function') {
-          JF.subscribe = function(eventName, handler){
-            add(`[${ts()}] JF.subscribe("${eventName}")`);
-            const wrapped = function(arg){ add(`[${ts()}]   ↪ "${eventName}" fired: ${safeJson(arg)}`); return handler && handler(arg); };
-            return orig.subscribe.call(JF, eventName, wrapped);
-          };
-        }
-        if (typeof orig.getWidgetSetting === 'function') {
-          JF.getWidgetSetting = function(key){ add(`[${ts()}] JF.getWidgetSetting(${safeJson(key)})`); const r = orig.getWidgetSetting.call(JF, key); add(`[${ts()}]   → ${safeJson(r)}`); return r; };
-        }
-        if (typeof orig.getWidgetSettings === 'function') {
-          JF.getWidgetSettings = function(){ add(`[${ts()}] JF.getWidgetSettings()`); const r = orig.getWidgetSettings.call(JF); add(`[${ts()}]   → ${safeJson(r)}`); return r; };
-        }
-        if (typeof orig.getFieldsValueById === 'function') {
-          JF.getFieldsValueById = function(ids, cb){ add(`[${ts()}] JF.getFieldsValueById(${safeJson(ids)})`);
-            const wrap = (map)=>{ add(`[${ts()}]   ↩ byId keys: ${Object.keys(map||{}).join(',')}`); add(`[${ts()}]   ↩ byId raw: ${safeJson(map)}`); cb && cb(map); };
-            try { return orig.getFieldsValueById.call(JF, ids, wrap); } catch(e){ add(`[${ts()}]   ✖ byId threw: ${e&&e.message||e}`); throw e; }
-          };
-        }
-        if (typeof orig.getFieldsValueByName === 'function') {
-          JF.getFieldsValueByName = function(names, cb){ add(`[${ts()}] JF.getFieldsValueByName(${safeJson(names)})`);
-            const wrap = (map)=>{ add(`[${ts()}]   ↩ byName keys: ${Object.keys(map||{}).join(',')}`); add(`[${ts()}]   ↩ byName raw: ${safeJson(map)}`); cb && cb(map); };
-            try { return orig.getFieldsValueByName.call(JF, names, wrap); } catch(e){ add(`[${ts()}]   ✖ byName threw: ${e&&e.message||e}`); throw e; }
-          };
-        }
-        if (typeof orig.listenFromField === 'function') {
-          JF.listenFromField = function(key, evt, handler){ add(`[${ts()}] JF.listenFromField(${safeJson(key)}, ${safeJson(evt)})`);
-            const wrap = (v)=>{ add(`[${ts()}]   ↪ listen "${evt}" from ${key}: ${safeJson(v)}`); return handler && handler(v); };
-            try { return orig.listenFromField.call(JF, key, evt, wrap); } catch(e){ add(`[${ts()}]   ✖ listen threw: ${e&&e.message||e}`); throw e; }
-          };
-        }
-        if (typeof orig.sendData === 'function') {
-          JF.sendData = function(payload){ add(`[${ts()}] JF.sendData(${safeJson(payload)})`); try { return orig.sendData.call(JF, payload); } catch(e){ add(`[${ts()}]   ✖ sendData threw: ${e&&e.message||e}`); throw e; } };
-        }
-        if (typeof orig.sendSubmit === 'function') {
-          JF.sendSubmit = function(payload){ add(`[${ts()}] JF.sendSubmit(${safeJson(payload)})`); try { return orig.sendSubmit.call(JF, payload); } catch(e){ add(`[${ts()}]   ✖ sendSubmit threw: ${e&&e.message||e}`); throw e; } };
-        }
-        add(`[${ts()}] ✔ JF logging wrappers installed`);
-      })();
-    })();
-    </script>
-    <!-- ========== /ULTRA LOGGER ========== -->
   </head>
-
   <body>
-    <div id="reviewArea" style="font:14px system-ui; margin:8px 0;">
-      <div><strong>Version</strong> 23</div>
+    <div style="font:14px system-ui;margin:8px 0;">
+      <div><strong>Version</strong> S1</div>
       <div>Start Date: <span id="ui-start">—</span></div>
       <div>End Date: <span id="ui-end">—</span></div>
       <div>Workers: <span id="ui-workers">—</span></div>
     </div>
 
-    <!-- ========== WIDGET LOGIC ========== -->
     <script>
       (function(){
+        // ---- tiny DOM helpers
         const $ = (id) => document.getElementById(id);
-        const log = (m) => { const el = $('ui-log'); if (el) el.textContent += (el.textContent?'\n':'') + m; console.log(m); };
-      
-        // ---- small utils
-        const coerceJFMap = (res) => {
-          if (res && res.type !== 'event:receiver') return res || {};
-          const out = {};
-          const arr = res && Array.isArray(res.data) ? res.data : [];
-          for (const row of arr) {
-            const key = String(row.selector ?? row.name ?? '');
-            if (!key) continue;
-            let val = row.value;
-            if (val && typeof val === 'object' && 'value' in val) val = val.value;
-            out[key] = val;
-          }
-          return out;
-        };
-        const coerceValue = (v) => {
-          if (v && typeof v === 'object') {
-            if ('value' in v) return v.value;
-            if ('data' in v && Array.isArray(v.data) && v.data[0] && 'value' in v.data[0]) return v.data[0].value;
-          }
-          return v;
-        };
-      
-        // Accept "6" or "input_6"; build listeners for date variants too
-        function normalizeQid(raw){
-          const s = String((raw && (raw.value ?? raw)) || '').trim().replace(/^#/, '');
-          const m = s.match(/^input_(\d+)$/i) || s.match(/^(\d+)$/);
-          const qid = m ? m[1] : null;
-          if (!qid) return { qid:null, listenKeys:[] };
-          // for dates we listen to _pick + parts; for numbers, extra keys simply never fire (harmless)
-          return {
-            qid,
-            listenKeys: [
-              `input_${qid}`, `input_${qid}_pick`,
-              `month_${qid}`, `day_${qid}`, `year_${qid}`, `lite_mode_${qid}`
-            ]
-          };
-        }
-      
-        function readByIdOnce(qid, cb){
-          if (!qid) return cb('');
-          try {
-            JFCustomWidget.getFieldsValueById([qid], (map)=>{
-              const m = coerceJFMap(map) || {};
-              cb(m[qid] ?? '');
-            });
-          } catch(_) { cb(''); }
-        }
-      
-        function startValueWatcher(qid, { intervalMs = 400, maxIdleMs = 300000 }, onChange){
-          if (!qid) return () => {};
-          let last = Symbol('first');
-          let stopped = false, idle = 0;
-          const tick = () => {
-            if (stopped) return;
-            readByIdOnce(qid, (val) => {
-              if (val !== last) {
-                last = val; idle = 0;
-                try { onChange(val); } catch(_){}
-              } else {
-                idle += intervalMs;
-                if (idle >= maxIdleMs) { stopped = true; return; }
-              }
-              setTimeout(tick, intervalMs);
-            });
-          };
-          tick();
-          return () => { stopped = true; };
-        }
-      
-        function listenKeys(keys, handler){
-          (keys || []).forEach((key)=>{
-            try { JFCustomWidget.listenFromField(key, 'change', v => handler(coerceValue(v))); } catch(_){}
-            try { JFCustomWidget.listenFromField(key, 'keyup',  v => handler(coerceValue(v))); }  catch(_){}
-            try { JFCustomWidget.listenFromField(key, 'blur',   v => handler(coerceValue(v))); }  catch(_){}
-          });
-        }
-      
-        // ---- state + emit
+
+        // ---- state & emit
         const state = { startDate:'', endDate:'', totalWorkers:0 };
         function updateUI(){
           $('ui-start').textContent   = state.startDate || '—';
           $('ui-end').textContent     = state.endDate   || '—';
           $('ui-workers').textContent = String(state.totalWorkers || '—');
         }
-        function serialize(){ return { ...state }; }
-        function pushValue(valid, message){
-          try { JFCustomWidget.sendData({ value: JSON.stringify(serialize()), valid, message: message || '' }); } catch(_){}
-        }
         function setState(patch){
-          const prev = {...state};
-          if ('startDate' in patch)    state.startDate    = patch.startDate || '';
-          if ('endDate' in patch)      state.endDate      = patch.endDate || '';
+          if ('startDate' in patch)    state.startDate = patch.startDate || '';
+          if ('endDate' in patch)      state.endDate   = patch.endDate   || '';
           if ('totalWorkers' in patch) state.totalWorkers = Number(patch.totalWorkers) || 0;
-          if (JSON.stringify(prev) !== JSON.stringify(state)) log(`state → ${JSON.stringify(state)}`);
           updateUI();
-          pushValue(true);
+          try {
+            JFCustomWidget.sendData({
+              value: JSON.stringify(state),
+              valid: true,
+              message: ''
+            });
+          } catch (_){}
         }
-      
-        // ---- initial pull: by ID first; optional name fallback just for Workers
-        function fetchInitialByIdThenName({ sQ, eQ, nQ, workerNameCandidates }, done){
-          const result = { startDate:'', endDate:'', totalWorkers:0 };
-      
-          const finish = (how) => done(result, how);
-      
-          // by-ID batch
-          const doById = (next) => {
-            const ids = [sQ, eQ, nQ].filter(Boolean);
-            if (!ids.length) return next();
-            try {
-              JFCustomWidget.getFieldsValueById(ids, (map)=>{
-                const m = coerceJFMap(map) || {};
-                if (sQ in m && m[sQ] != null) result.startDate    = m[sQ] || result.startDate;
-                if (eQ in m && m[eQ] != null) result.endDate      = m[eQ] || result.endDate;
-                if (nQ in m && m[nQ] != null) result.totalWorkers = Number(m[nQ] || result.totalWorkers || 0);
-                next();
-              });
-            } catch(_) { next(); }
-          };
-      
-          // by-NAME (workers only): tiny candidate list or explicit param
-          const doByNameWorkers = (next) => {
-            const names = (workerNameCandidates || []).filter(Boolean);
-            if (!names.length || result.totalWorkers) return next();
-            if (typeof JFCustomWidget.getFieldsValueByName !== 'function') return next();
-            try {
-              JFCustomWidget.getFieldsValueByName(names, (map)=>{
-                const m = coerceJFMap(map) || {};
-                for (const nm of names) {
-                  if (m[nm] != null) {
-                    const nVal = Number(m[nm]);
-                    if (!Number.isNaN(nVal) && nVal > 0) { result.totalWorkers = nVal; break; }
-                  }
-                }
-                next();
-              });
-            } catch(_) { next(); }
-          };
-      
-          doById(()=> doByNameWorkers(()=>{
-            if (result.startDate || result.endDate || result.totalWorkers) return finish('immediate');
-            // short bounded poll to catch slow host fill
-            let tries = 10;
-            (function tick(){
-              if (--tries < 0) return finish('empty');
-              doById(()=> doByNameWorkers(()=>{
-                if (result.startDate || result.endDate || result.totalWorkers) return finish('polled');
-                setTimeout(tick, 300);
-              }));
-            })();
-          }));
+
+        // ---- minimal utils
+        function toQID(raw){
+          const s = String((raw && (raw.value ?? raw)) || '').trim().replace(/^#/, '');
+          const m = s.match(/^input_(\d+)$/i) || s.match(/^(\d+)$/);
+          return m ? m[1] : null; // "4"
         }
-      
-        // ---- main wiring
-        JFCustomWidget.subscribe("ready", function(){
-          log('ready');
-      
-          // Read QIDs from settings (IDs only please)
-          const s = normalizeQid(JFCustomWidget.getWidgetSetting('startFieldId'));
-          const e = normalizeQid(JFCustomWidget.getWidgetSetting('endFieldId'));
-          const n = normalizeQid(JFCustomWidget.getWidgetSetting('totalWorkersFieldId'));
-          log(`normalized (IDs only) → sQ=${s.qid} eQ=${e.qid} nQ=${n.qid}`);
-          log(`listening keys → start:[${(s.listenKeys||[]).join(', ')}] end:[${(e.listenKeys||[]).join(', ')}] workers:[${(n.listenKeys||[]).join(', ')}]`);
-      
-          // Optional explicit name from widget settings; else try a tiny safe list
-          const explicitWorkersName = JFCustomWidget.getWidgetSetting && JFCustomWidget.getWidgetSetting('totalWorkersName');
-          const workerNameCandidates = []
-            .concat(explicitWorkersName ? [explicitWorkersName] : [])
-            .concat(['h2aWorkers','workers','totalWorkers']); // harmless if absent
-      
-          // Initial values (ID-first + byName fallback just for Workers)
-          fetchInitialByIdThenName({ sQ:s.qid, eQ:e.qid, nQ:n.qid, workerNameCandidates }, (vals, how)=>{
-            log(`initial resolved (${how}) → ${JSON.stringify(vals)}`);
-            setState(vals);
-      
-            // late double-pull by ID for Workers (catches very-late commits)
-            if (!vals.totalWorkers && n.qid) {
-              [400, 1000, 1800].forEach(delay => {
-                setTimeout(()=> readByIdOnce(n.qid, (v)=>{
-                  const nVal = Number(v);
-                  if (!Number.isNaN(nVal) && nVal > 0) setState({ totalWorkers: nVal });
-                }), delay);
-              });
-            }
+        function readByIdOnce(qid, cb){
+          if (!qid) return cb('');
+          try {
+            JFCustomWidget.getFieldsValueById([qid], (res)=>{
+              // res is either a simple map or an event envelope; handle both
+              let map = {};
+              if (res && res.type === 'event:receiver') {
+                (res.data || []).forEach(r => { map[String(r.selector)] = (r.value && r.value.value) ? r.value.value : r.value; });
+              } else {
+                map = res || {};
+              }
+              cb(map[qid] ?? '');
+            });
+          } catch(_) { cb(''); }
+        }
+        function listenKeys(keys, handler){
+          (keys||[]).forEach(k=>{
+            try { JFCustomWidget.listenFromField(k, 'change', v => handler(extract(v))); } catch(_){}
+            try { JFCustomWidget.listenFromField(k, 'keyup',  v => handler(extract(v))); } catch(_){}
+            try { JFCustomWidget.listenFromField(k, 'blur',   v => handler(extract(v))); } catch(_){}
           });
-      
-          // Live syncing:
-          // - Dates: rely on watchers (QID polling) since datepicker seldom fires reliable events.
-          // - Workers: event payload is reliable when user types, so use listeners for immediate UI.
-          const stopWatchStart = startValueWatcher(s.qid, { intervalMs: 400 }, (v)=> setState({ startDate: v }));
-          const stopWatchEnd   = startValueWatcher(e.qid, { intervalMs: 400 }, (v)=> setState({ endDate: v }));
-          listenKeys(n.listenKeys, (v)=> {
+        }
+        function extract(v){
+          if (v && typeof v === 'object') {
+            if ('value' in v) return v.value;
+            if (v.data && v.data[0] && 'value' in v.data[0]) return v.data[0].value;
+          }
+          return v;
+        }
+        function startWatcher(qid, onChange, interval=400){
+          if (!qid) return ()=>{};
+          let last = Symbol('first');
+          let stop = false;
+          (function tick(){
+            if (stop) return;
+            readByIdOnce(qid, val => {
+              if (val !== last) { last = val; onChange(val); }
+              setTimeout(tick, interval);
+            });
+          })();
+          return ()=>{ stop = true; };
+        }
+
+        // ---- main
+        JFCustomWidget.subscribe('ready', function(){
+          // Read settings (IDs only; accept "6" or "input_6")
+          const sQ = toQID(JFCustomWidget.getWidgetSetting('startFieldId'));
+          const eQ = toQID(JFCustomWidget.getWidgetSetting('endFieldId'));
+          const nQ = toQID(JFCustomWidget.getWidgetSetting('totalWorkersFieldId'));
+
+          // Initial pull (batch)
+          (function initPull(){
+            const ids = [sQ, eQ, nQ].filter(Boolean);
+            if (!ids.length) return;
+            try {
+              JFCustomWidget.getFieldsValueById(ids, (res)=>{
+                // coerce
+                let map = {};
+                if (res && res.type === 'event:receiver') {
+                  (res.data || []).forEach(r => { map[String(r.selector)] = (r.value && r.value.value) ? r.value.value : r.value; });
+                } else {
+                  map = res || {};
+                }
+                setState({
+                  startDate: map[sQ] || '',
+                  endDate:   map[eQ] || '',
+                  totalWorkers: Number(map[nQ]) || 0
+                });
+              });
+            } catch(_){}
+          })();
+
+          // Dates: poll by ID (datepicker events can be spotty)
+          startWatcher(sQ, v => setState({ startDate: v }));
+          startWatcher(eQ, v => setState({ endDate: v }));
+
+          // Workers: listen to the single input (plus a late read to catch slow prefill)
+          const nKeys = nQ ? [`input_${nQ}`] : [];
+          listenKeys(nKeys, v => {
             const nVal = Number(v);
             if (!Number.isNaN(nVal)) setState({ totalWorkers: nVal });
           });
-      
+          if (nQ) setTimeout(()=> readByIdOnce(nQ, v => {
+            const nVal = Number(v);
+            if (!Number.isNaN(nVal) && nVal > 0) setState({ totalWorkers: nVal });
+          }), 600);
+
           // Submit
-          JFCustomWidget.subscribe("submit", function(){
-            JFCustomWidget.sendSubmit({ valid: true, value: JSON.stringify(serialize()) });
+          JFCustomWidget.subscribe('submit', function(){
+            JFCustomWidget.sendSubmit({ valid: true, value: JSON.stringify(state) });
           });
         });
       })();
-      </script>
-    <!-- ========== /WIDGET LOGIC ========== -->
+    </script>
   </body>
 </html>
-
-
-
-
-
-
-
