@@ -9,133 +9,113 @@
   <style></style>
   <body>
     <div id="reviewArea">
-      <div>Version 11 </div>
+      <div>Version 12 </div>
       <div>Start Date: <span id="ui-start">—</span></div>
       <div>End Date: <span id="ui-end">—</span></div>
       <div>Workers: <span id="ui-workers">—</span></div>
     </div>
     <script type="text/javascript">
-      function tableExampleForCleaningDepot() {
-        const start = JFCustomWidget.getWidgetSetting('startFieldId');
-        const end = JFCustomWidget.getWidgetSetting('endFieldId');
-        const workers = JFCustomWidget.getWidgetSetting('totalWorkersFieldId');
-
-        console.log(`start param: ${start}`)
-        console.log(`end param: ${end}`)
-        console.log(`workers param: ${workers}`)
-
-        // exposed functions
-        this.init = init;
-        this.getData = getData;
-        const otherFields = [
-          'startDate',
-          'endDate',
-          'h2aWorkers'
-        ]
-
-        function getFieldsByX(){
-          console.log("Running getFieldsByX")
-          JFCustomWidget.getFieldsValueByName(otherFields, function(res){
-              setTimeout(console.log(`Here's the data ${JSON.stringify(res, null, 2)}`), 500)
-          })
-        }
-
-        function getStartDate(){
-          console.log(JFCustomWidget.getFieldsValueById(start));
-        }
-        function getEndDate(){
-          console.log(JFCustomWidget.getFieldsValueById(end), (map) => {
-          });
-        }
-        function getWorkers(){
-          console.log(JFCustomWidget.getFieldsValueById(workers));
-        }
-
-        // initialization of the widget
-        function init(formData) {
-          console.log("Hello world!");
-          getFieldsByX();
-          getStartDate();
-          getEndDate();
-          getWorkers();
-        }
-
-        // get widget data
-        function getData() {
-          return {
-            valid: true,
-            value: "TEST"
-          };
-        }
+      // --- tiny helpers ---
+      const unwrap = v => (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+      const toQID  = v => String(v || '').replace(/^input_/, '').trim(); // "input_6" -> "6"
+    
+      // --- UI helpers ---
+      function updateReviewArea({ startDate, endDate, totalWorkers }) {
+        if (startDate !== undefined)  document.getElementById('ui-start').textContent   = startDate || '—';
+        if (endDate   !== undefined)  document.getElementById('ui-end').textContent     = endDate   || '—';
+        if (totalWorkers !== undefined) document.getElementById('ui-workers').textContent = String(totalWorkers ?? '—');
       }
-
-      // always subscribe to ready event and implement widget related code
-      // inside callback function , it is the best practice while developing widgets
-      JFCustomWidget.subscribe("ready", function () {
-        const unwrap = v => (v && typeof v === 'object' && 'value' in v) ? v.value : v;
-        const qid = key => String(JFCustomWidget.getWidgetSetting(key) || '').replace(/^input_/, '');
-      
-        const sQ = qid('startFieldId');
-        const eQ = qid('endFieldId');
-        const nQ = qid('totalWorkersFieldId');
-      
-        // Initial pull
-        JFCustomWidget.getFieldsValueById([sQ, eQ, nQ], (map) => {
-          const unwrap = v => (v && typeof v === 'object' && 'value' in v) ? v.value : v;
-        
-          const startDate    = unwrap(map[sQ]) || '';
-          const endDate      = unwrap(map[eQ]) || '';
-          const totalWorkers = Number(unwrap(map[nQ]) || 0);
-
-          function updateReviewArea({ startDate, endDate, totalWorkers }) {
-            if (startDate !== undefined)  document.getElementById('ui-start').textContent   = startDate || '—';
-            if (endDate   !== undefined)  document.getElementById('ui-end').textContent     = endDate   || '—';
-            if (totalWorkers !== undefined) document.getElementById('ui-workers').textContent = String(totalWorkers ?? '—');
-          }
-
-          function applyHostValues({ startDate, endDate, totalWorkers }) {
-            if (startDate !== undefined)    setBounds({ startDate });
-            if (endDate !== undefined)      setBounds({ endDate });
-            if (totalWorkers !== undefined) setBounds({ totalWorkers });
-            // setBounds() already renders + validates in your code
-          }
-
-          function pushValue(valid, message) {
-            try {
-              JFCustomWidget.sendData({
-                value: JSON.stringify(serialize()), // your array of {date,count}
-                valid,
-                message: message || ''
-              });
-            } catch(_) {}
-          }
-          window.sendValue = ({ valid, message }) => pushValue(valid, message);
-          
-          updateReviewArea({ startDate, endDate, totalWorkers }); // <-- update UI
-          applyHostValues({ startDate, endDate, totalWorkers });  // <-- your widget state
-          pushValue(validate().length === 0);                     // <-- send to Jotform
-        });
-        
-        // Live updates
-        const listenQID = (q, h) => {
-          const id = 'input_' + q;
-          try { JFCustomWidget.listenFromField(id, 'change', h); } catch(_){}
-          try { JFCustomWidget.listenFromField(id, 'keyup',  h); } catch(_){}
+    
+      // --- minimal state + logic (no rows, just mirrors host fields) ---
+      const state = { startDate: '', endDate: '', totalWorkers: 0 };
+    
+      function setBounds({ startDate, endDate, totalWorkers }) {
+        if (startDate !== undefined)    state.startDate = startDate || '';
+        if (endDate !== undefined)      state.endDate = endDate || '';
+        if (totalWorkers !== undefined) state.totalWorkers = Number(totalWorkers) || 0;
+    
+        updateReviewArea(state);
+        pushValue(validate().length === 0);
+      }
+    
+      function validate() {
+        const errs = [];
+        // super simple checks; expand as needed
+        if (!state.startDate) errs.push('Missing start date');
+        if (!state.endDate)   errs.push('Missing end date');
+        if (Number.isNaN(state.totalWorkers) || state.totalWorkers < 0) errs.push('Workers must be ≥ 0');
+        return errs;
+      }
+    
+      function serialize() {
+        // what you want JotForm to capture as widget value
+        return {
+          startDate: state.startDate,
+          endDate: state.endDate,
+          totalWorkers: state.totalWorkers
         };
-        listenQID(sQ, (v)=> { updateReviewArea({ startDate: v });    setBounds({ startDate: v }); });
-        listenQID(eQ, (v)=> { updateReviewArea({ endDate: v });      setBounds({ endDate: v }); });
-        listenQID(nQ, (v)=> { const n = Number(v)||0; updateReviewArea({ totalWorkers: n }); setBounds({ totalWorkers: n }); });
-      
-        // Submit hook
-        JFCustomWidget.subscribe('submit', function(){
+      }
+    
+      function pushValue(valid, message) {
+        try {
+          JFCustomWidget.sendData({
+            value: JSON.stringify(serialize()),
+            valid,
+            message: message || ''
+          });
+        } catch(_) {}
+      }
+    
+      // --- main wiring ---
+      JFCustomWidget.subscribe("ready", function () {
+        // read widget settings (IDs) safely
+        const sQ = toQID(JFCustomWidget.getWidgetSetting('startFieldId'));
+        const eQ = toQID(JFCustomWidget.getWidgetSetting('endFieldId'));
+        const nQ = toQID(JFCustomWidget.getWidgetSetting('totalWorkersFieldId'));
+    
+        // build the ID list we’ll request; drop empties
+        const wantIds = [sQ, eQ, nQ].filter(Boolean);
+    
+        // initial pull by ID (expects an ARRAY of QIDs)
+        if (wantIds.length) {
+          JFCustomWidget.getFieldsValueById(wantIds, (map) => {
+            // map keys are QIDs, e.g., { "4": "2025-10-01", "5": "2025-12-31", "6": "12" }
+            const startDate    = sQ ? unwrap(map[sQ]) : '';
+            const endDate      = eQ ? unwrap(map[eQ]) : '';
+            const totalWorkers = nQ ? Number(unwrap(map[nQ]) || 0) : 0;
+    
+            setBounds({ startDate, endDate, totalWorkers });  // updates UI + emits
+          });
+        } else {
+          // no IDs? leave UI with placeholders; still emit current (empty) state
+          setBounds({});
+        }
+    
+        // live listeners (listen on input_<qid>)
+        function listenQID(qid, handler){
+          if (!qid) return;
+          const id = 'input_' + qid;
+          try { JFCustomWidget.listenFromField(id, 'change', handler); } catch(_){}
+          try { JFCustomWidget.listenFromField(id, 'keyup',  handler); } catch(_){}
+        }
+    
+        listenQID(sQ, (v)=> setBounds({ startDate: v }));
+        listenQID(eQ, (v)=> setBounds({ endDate: v }));
+        listenQID(nQ, (v)=> setBounds({ totalWorkers: Number(v)||0 }));
+    
+        // submit: return final data to the form
+        JFCustomWidget.subscribe("submit", function () {
           const errs = validate();
-          JFCustomWidget.sendSubmit({ valid: errs.length===0, value: JSON.stringify(serialize()) });
+          JFCustomWidget.sendSubmit({
+            valid: errs.length === 0,
+            value: JSON.stringify(serialize())
+          });
         });
       });
-
     </script>
   </body>
 </html>
+
 
 
 
