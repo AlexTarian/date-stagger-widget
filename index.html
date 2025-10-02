@@ -16,9 +16,9 @@
     </div>
     <script type="text/javascript">
       function tableExampleForCleaningDepot() {
-        const start = JFCustomWidget.getWidgetSettings('startFieldId');
-        const end = JFCustomWidget.getWidgetSettings('endFieldId');
-        const workers = JFCustomWidget.getWidgetSettings('totalWorkersFieldId');
+        const start = JFCustomWidget.getWidgetSetting('startFieldId');
+        const end = JFCustomWidget.getWidgetSetting('endFieldId');
+        const workers = JFCustomWidget.getWidgetSetting('totalWorkersFieldId');
 
         console.log(`start param: ${start}`)
         console.log(`end param: ${end}`)
@@ -62,6 +62,7 @@
         // initialization of the widget
         function init(formData) {
           console.log("Hello world!");
+          console.log(JFCustomWidget.getFields())
           getFieldsByX()
           getStartDate()
           getEndDate()
@@ -90,6 +91,7 @@
     </script>
   </body>
 </html>
+
 
 
 
