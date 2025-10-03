@@ -153,6 +153,35 @@
       return v;
     }
 
+    // 2/3 through the season, then snap to the first day of that month.
+    // Ensures it's within [start,end] and after start by at least minGapDays.
+    function suggestSecondArrivalMonthStart(startISO, endISO, {
+      pct = 2/3,       // 67%
+      minGapDays = 1   // must be at least this many days after start
+    } = {}) {
+      if (!startISO || !endISO) return '';
+      const start = new Date(startISO + 'T00:00:00Z');
+      const end   = new Date(endISO   + 'T00:00:00Z');
+      if (isNaN(start) || isNaN(end) || end <= start) return '';
+    
+      // point ~2/3 through
+      const mid = new Date(start.getTime() + (end - start) * pct);
+    
+      // snap to first of that month (UTC-safe)
+      const monthStart = new Date(Date.UTC(mid.getUTCFullYear(), mid.getUTCMonth(), 1));
+    
+      // enforce min gap from start
+      const minAllowed = new Date(Date.UTC(
+        start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + minGapDays
+      ));
+      let picked = monthStart < minAllowed ? minAllowed : monthStart;
+    
+      // clamp to end
+      if (picked > end) picked = new Date(end);
+    
+      return picked.toISOString().slice(0,10); // YYYY-MM-DD
+    }
+
     const sum = () => state.values.reduce((a,r)=> a + (Number(r.count)||0), 0);
 
     // ---------- UI ----------
@@ -262,20 +291,42 @@
       if (startDate != null)    state.startDate = toISO(startDate) || '';
       if (endDate   != null)    state.endDate   = toISO(endDate)   || '';
       if (totalWorkers != null) state.totalWorkers = Number(totalWorkers) || 0;
-
-      // snap + strictly increasing
+    
+      // Always have at least two rows
       ensureMinRows();
+    
+      // Row 1: force to start date if present
+      if (state.startDate) state.values[0].date = state.startDate;
+    
+      // Row 2: if blank, suggest 2/3 through, snapped to month start and clamped
+      if (state.values[1] && !state.values[1].date && state.startDate && state.endDate){
+        let suggested = suggestSecondArrivalMonthStart(state.startDate, state.endDate, {
+          pct: 2/3,
+          minGapDays: 1
+        });
+    
+        // Must be strictly after row 1
+        const minSecond = nextDay(state.values[0].date);
+        if (suggested && suggested < minSecond) suggested = minSecond;
+    
+        // Clamp to end
+        if (state.endDate && suggested > state.endDate) suggested = state.endDate;
+    
+        state.values[1].date = suggested || state.values[1].date || '';
+      }
+    
+      // Snap/validate all rows to range and strictly increasing order
       state.values.forEach((r,i)=>{
         r.date = toISO(r.date);
-        if (i===0 && !r.date && state.startDate) r.date = state.startDate; // prefill row 1
         r.date = clampDate(r.date);
         if (i>0){
-          const p = state.values[i-1]?.date;
-          if (p && (!r.date || r.date <= p)) r.date = nextDay(p);
+          const prev = state.values[i-1]?.date;
+          if (prev && (!r.date || r.date <= prev)) r.date = nextDay(prev);
         }
       });
-
-      render(); validateAndSend();
+    
+      render();
+      validateAndSend();
     }
 
     // ---------- validation / emit ----------
@@ -381,3 +432,4 @@
   </script>
 </body>
 </html>
+
