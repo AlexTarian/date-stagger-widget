@@ -160,7 +160,7 @@
       }
     }
 
-    function readManyById(ids, cb) {
+    function readManyById(ids, cb, dateIds = []) {
       const cleanIds = ids.filter(Boolean);
       const dateIdSet = new Set(dateIds.map(String));
       
