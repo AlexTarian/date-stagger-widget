@@ -140,7 +140,7 @@
 
       const refresh = () => {
         setTimeout(() => {
-          hydrateAllFieldsForLimitedTime_(sQ, eQ, nQ, 1500, 250);
+          hydrateAllFieldsForLimitedTime_(sQ, eQ, nQ, 3000, 300);
         }, 250);
       };
 
@@ -152,6 +152,33 @@
         });
       });
     }
+
+    function hydrateAllFieldsForLimitedTime_(sQ, eQ, nQ, durationMs = 2500, intervalMs = 300) {
+  const started = Date.now();
+
+  function tick() {
+    readManyById([sQ, eQ, nQ].filter(Boolean), map => {
+      setBounds({
+        startDate: map[sQ] || undefined,
+        endDate: map[eQ] || undefined,
+        totalWorkers: numberOrUndefined_(map[nQ])
+      });
+    }, [sQ, eQ]);
+
+    readByIdOnce(nQ, value => {
+      const n = numberOrUndefined_(value);
+      if (n !== undefined) {
+        setBounds({ totalWorkers: n });
+      }
+    });
+
+    if (Date.now() - started < durationMs) {
+      setTimeout(tick, intervalMs);
+    }
+  }
+
+  tick();
+}
 
     function extractValue(payload) {
       if (payload == null) return '';
@@ -576,7 +603,7 @@ function readManyById(ids, cb, dateIds = []) {
   };
 
   candidates.forEach(candidate => {
-    ['change', 'keyup', 'input', 'blur'].forEach(eventName => {
+    ['ready', 'change', 'keyup', 'input', 'blur'].forEach(eventName => {
       try {
         JFCustomWidget.listenFromField(candidate, eventName, handler);
       } catch (_) {}
