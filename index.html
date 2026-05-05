@@ -112,6 +112,14 @@
       return `${m}/${d}/${y}`;
     }
 
+    function numberOrUndefined_(value) {
+      const cleaned = clean(value);
+      if (cleaned === '') return undefined;
+
+      const n = Number(cleaned);
+      return Number.isNaN(n) ? undefined : n;
+    }
+
     function extractValue(payload) {
       if (payload == null) return '';
 
@@ -390,9 +398,14 @@ function readManyById(ids, cb, dateIds = []) {
     }
 
     function setBounds({ startDate, endDate, totalWorkers }){
-      const nextStart = startDate != null ? toISO(startDate) || '' : state.startDate;
-      const nextEnd = endDate != null ? toISO(endDate) || '' : state.endDate;
-      const nextWorkers = totalWorkers != null ? Number(totalWorkers) || 0 : state.totalWorkers;
+      const nextStart =
+        startDate !== undefined ? toISO(startDate) || '' : state.startDate;
+
+      const nextEnd =
+        endDate !== undefined ? toISO(endDate) || '' : state.endDate;
+
+      const nextWorkers =
+        totalWorkers !== undefined ? Number(totalWorkers) || 0 : state.totalWorkers;
 
       if (
         nextStart === state.startDate &&
@@ -586,9 +599,9 @@ function readManyById(ids, cb, dateIds = []) {
 
       readManyById(ids, map => {
         setBounds({
-          startDate: map[sQ] || '',
-          endDate: map[eQ] || '',
-          totalWorkers: Number(map[nQ]) || 0
+          startDate: map[sQ] || undefined,
+          endDate: map[eQ] || undefined,
+          totalWorkers: numberOrUndefined_(map[nQ])
         });
       }, [sQ, eQ]);
 
@@ -603,9 +616,9 @@ function readManyById(ids, cb, dateIds = []) {
       setTimeout(() => {
         readManyById(ids, map => {
           setBounds({
-            startDate: map[sQ] || '',
-            endDate: map[eQ] || '',
-            totalWorkers: Number(map[nQ]) || 0
+            startDate: map[sQ] || undefined,
+            endDate: map[eQ] || undefined,
+            totalWorkers: numberOrUndefined_(map[nQ])
           });
         }, [sQ, eQ]);
       }, 700);
