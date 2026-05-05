@@ -169,22 +169,56 @@
           const map = {};
 
           if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
-            res.data.forEach(r => {
-              const selector = String(r.selector ?? '');
-              const id = selector.replace(/\D/g, '');
-              map[id] = extractValue(r.value);
-            });
-          } else if (res && typeof res === 'object') {
             cleanIds.forEach(id => {
-              map[id] = extractValue(res[id] ?? res[`input_${id}`] ?? '');
+              const dateValue = extractDateFromData_(res.data, id);
+
+              if (dateValue) {
+                map[id] = dateValue;
+                return;
+              }
+
+              const match = res.data.find(r => {
+                const selector = String(r.selector || '');
+                return (
+                  selector === String(id) ||
+                  selector === `input_${id}` ||
+                  selector === `q${id}` ||
+                  selector.includes(`_${id}`)
+                );
+              });
+
+              map[id] = extractValue(match ? match.value : '');
             });
-          }
+          }}
 
           cb(map);
         });
       } catch(_) {
         cb({});
       }
+    }
+
+    function extractDateFromData_(data, qid) {
+      if (!Array.isArray(data)) return '';
+
+      const parts = {};
+
+      data.forEach(r => {
+        const selector = String(r.selector || '');
+        const value = extractValue(r.value);
+
+        if (selector === `month_${qid}`) parts.month = value;
+        if (selector === `day_${qid}`) parts.day = value;
+        if (selector === `year_${qid}`) parts.year = value;
+        if (selector === `lite_mode_${qid}`) parts.lite = value;
+        if (selector === `input_${qid}` || selector === `input_${qid}_pick`) parts.input = value;
+      });
+
+      if (parts.month && parts.day && parts.year) {
+        return `${String(parts.month).padStart(2, '0')}/${String(parts.day).padStart(2, '0')}/${parts.year}`;
+      }
+
+      return parts.input || parts.lite || '';
     }
 
     function nextDay(iso){
@@ -469,7 +503,12 @@
       const candidates = [
         qid,
         `input_${qid}`,
-        `q${qid}`
+        `q${qid}`,
+        `month_${qid}`,
+        `day_${qid}`,
+        `year_${qid}`,
+        `lite_mode_${qid}`,
+        `input_${qid}_pick`
       ];
 
       candidates.forEach(candidate => {
