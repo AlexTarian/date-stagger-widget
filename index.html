@@ -67,37 +67,40 @@
 
   <script>
   (function(){
-    // ---------- DOM ----------
     const $ = (id) => document.getElementById(id);
 
-    // ---------- state ----------
     const state = {
-      startDate: '',        // yyyy-mm-dd
-      endDate: '',          // yyyy-mm-dd
-      totalWorkers: 0,      // number (from a Short Text field in JF)
-      values: [],           // [{ date:'yyyy-mm-dd', count:Number }]
+      startDate: '',
+      endDate: '',
+      totalWorkers: 0,
+      values: [],
       minRows: 2
     };
 
-    // ---------- utils ----------
+    let boundsTimer = null;
+    let lastSentValue = '';
+
     const toQID = (raw) => {
       const s = String((raw && (raw.value ?? raw)) || '').trim().replace(/^#/, '');
-      const m = s.match(/^input_(\d+)$/i) || s.match(/^(\d+)$/);
+      const m = s.match(/^input_(\d+)$/i) || s.match(/^q(\d+)/i) || s.match(/^(\d+)$/);
       return m ? m[1] : null;
     };
 
-    // Normalize any “MM/DD/YYYY” or “YYYY-MM-DD” to “YYYY-MM-DD”
+    function clean(value) {
+      return String(value ?? '').trim();
+    }
+
     function toISO(d){
+      d = clean(d);
       if (!d) return '';
       if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-      const m = d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // MM/DD/YYYY
+
+      const m = d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
       if (m){
         const [ , mm, dd, yyyy ] = m;
-        const mm2 = String(mm).padStart(2,'0');
-        const dd2 = String(dd).padStart(2,'0');
-        return `${yyyy}-${mm2}-${dd2}`;
+        return `${yyyy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
       }
-      // Last resort: Date parse
+
       const dt = new Date(d);
       if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0,10);
       return '';
@@ -109,125 +112,164 @@
       return `${m}/${d}/${y}`;
     }
 
-    function readByIdOnce(qid, cb){
-      if (!qid) return cb('');
-      try {
-        JFCustomWidget.getFieldsValueById([qid], (res)=>{
-          let map = {};
-          if (res && res.type === 'event:receiver') {
-            (res.data || []).forEach(r => { map[String(r.selector)] = (r.value && r.value.value) ? r.value.value : r.value; });
-          } else {
-            map = res || {};
-          }
-          cb(map[qid] ?? '');
-        });
-      } catch(_) { cb(''); }
+    function extractValue(payload) {
+      if (payload == null) return '';
+
+      if (typeof payload === 'string' || typeof payload === 'number' || typeof payload === 'boolean') {
+        return String(payload);
+      }
+
+      if (Array.isArray(payload)) {
+        return payload.map(extractValue).filter(Boolean).join(' ');
+      }
+
+      if (typeof payload === 'object') {
+        if (payload.value && typeof payload.value === 'object') {
+          return extractValue(payload.value.value ?? payload.value.text ?? payload.value.answer);
+        }
+
+        return extractValue(payload.value ?? payload.data ?? payload.text ?? payload.answer);
+      }
+
+      return '';
     }
 
-    function startWatcher(qid, onChange, interval=400){
-      if (!qid) return ()=>{};
-      let last = Symbol('first'), stop = false;
-      (function tick(){
-        if (stop) return;
-        readByIdOnce(qid, val => {
-          const iso = toISO(val);
-          if (iso !== last) { last = iso; onChange(iso); }
-          setTimeout(tick, interval);
+    function readByIdOnce(qid, cb){
+      if (!qid) return cb('');
+
+      try {
+        JFCustomWidget.getFieldsValueById([qid], (res)=>{
+          let value = '';
+
+          if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
+            const match = res.data.find(r =>
+              String(r.selector) === String(qid) ||
+              String(r.selector) === `input_${qid}` ||
+              String(r.selector).includes(String(qid))
+            );
+
+            value = extractValue(match ? match.value : res.data[0]?.value);
+          } else if (res && typeof res === 'object') {
+            value = extractValue(res[qid] ?? res[`input_${qid}`] ?? res.data);
+          }
+
+          cb(value);
         });
-      })();
-      return ()=>{ stop = true; };
+      } catch(_) {
+        cb('');
+      }
+    }
+
+    function readManyById(ids, cb) {
+      const cleanIds = ids.filter(Boolean);
+      if (!cleanIds.length) return cb({});
+
+      try {
+        JFCustomWidget.getFieldsValueById(cleanIds, (res) => {
+          const map = {};
+
+          if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
+            res.data.forEach(r => {
+              const selector = String(r.selector ?? '');
+              const id = selector.replace(/\D/g, '');
+              map[id] = extractValue(r.value);
+            });
+          } else if (res && typeof res === 'object') {
+            cleanIds.forEach(id => {
+              map[id] = extractValue(res[id] ?? res[`input_${id}`] ?? '');
+            });
+          }
+
+          cb(map);
+        });
+      } catch(_) {
+        cb({});
+      }
     }
 
     function nextDay(iso){
       if (!iso) return '';
-      const d = new Date(iso);
+      const d = new Date(iso + 'T00:00:00Z');
       if (Number.isNaN(d.getTime())) return '';
-      d.setDate(d.getDate()+1);
+      d.setUTCDate(d.getUTCDate()+1);
       return d.toISOString().slice(0,10);
     }
 
     function clampDate(v){
       if (!v) return v;
       if (state.startDate && v < state.startDate) return state.startDate;
-      if (state.endDate && v > state.endDate)     return state.endDate;
+      if (state.endDate && v > state.endDate) return state.endDate;
       return v;
     }
 
-    // 2/3 through the season, then snap to the first day of that month.
-    // Ensures it's within [start,end] and after start by at least minGapDays.
-    function suggestSecondArrivalMonthStart(startISO, endISO, {
-      pct = 2/3,       // 67%
-      minGapDays = 1   // must be at least this many days after start
-    } = {}) {
+    function suggestSecondArrivalMonthStart(startISO, endISO, { pct = 2/3, minGapDays = 1 } = {}) {
       if (!startISO || !endISO) return '';
       const start = new Date(startISO + 'T00:00:00Z');
-      const end   = new Date(endISO   + 'T00:00:00Z');
+      const end = new Date(endISO + 'T00:00:00Z');
       if (isNaN(start) || isNaN(end) || end <= start) return '';
-    
-      // point ~2/3 through
+
       const mid = new Date(start.getTime() + (end - start) * pct);
-    
-      // snap to first of that month (UTC-safe)
       const monthStart = new Date(Date.UTC(mid.getUTCFullYear(), mid.getUTCMonth(), 1));
-    
-      // enforce min gap from start
+
       const minAllowed = new Date(Date.UTC(
-        start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + minGapDays
+        start.getUTCFullYear(),
+        start.getUTCMonth(),
+        start.getUTCDate() + minGapDays
       ));
+
       let picked = monthStart < minAllowed ? minAllowed : monthStart;
-    
-      // clamp to end
       if (picked > end) picked = new Date(end);
-    
-      return picked.toISOString().slice(0,10); // YYYY-MM-DD
+
+      return picked.toISOString().slice(0,10);
     }
 
     const sum = () => state.values.reduce((a,r)=> a + (Number(r.count)||0), 0);
 
-    // ---------- UI ----------
     function ensureMinRows(){
-      while (state.values.length < state.minRows) state.values.push({ date:'', count:0 });
+      while (state.values.length < state.minRows) {
+        state.values.push({ date:'', count:0 });
+      }
     }
 
     function render(){
       const rows = $('rows');
       rows.innerHTML = '';
 
-      // Show header meta
       $('meta').textContent = `${fromISOToNice(state.startDate) || 'Start'} — ${fromISOToNice(state.endDate) || 'End'} • ${state.totalWorkers} workers`;
 
       state.values.forEach((row, idx)=>{
         const tr = document.createElement('tr');
 
-        // date cell
         const tdDate = document.createElement('td');
         const inpDate = document.createElement('input');
         inpDate.type = 'date';
 
-        // First row defaults to the job start date
         if (idx === 0 && !row.date && state.startDate) row.date = state.startDate;
 
-        const prev = idx>0 ? (state.values[idx-1]?.date || '') : '';
-        const minForThis = idx===0 ? state.startDate : (prev ? nextDay(prev) : state.startDate);
-        if (minForThis)    inpDate.min = minForThis;
+        const prev = idx > 0 ? (state.values[idx-1]?.date || '') : '';
+        const minForThis = idx === 0 ? state.startDate : (prev ? nextDay(prev) : state.startDate);
+
+        if (minForThis) inpDate.min = minForThis;
         if (state.endDate) inpDate.max = state.endDate;
 
         inpDate.value = row.date || '';
         inpDate.addEventListener('change', ()=>{
           let v = toISO(inpDate.value);
           v = clampDate(v);
-          if (idx>0){
+
+          if (idx > 0) {
             const p = state.values[idx-1]?.date;
             if (p && (!v || v <= p)) v = nextDay(p);
           }
+
           row.date = v || '';
           inpDate.value = row.date;
+
+          render();
           validateAndSend();
-          render(); // refresh min/max constraints downstream
         });
         tdDate.appendChild(inpDate);
 
-        // number cell
         const tdNum = document.createElement('td');
         const inpNum = document.createElement('input');
         inpNum.type = 'number';
@@ -235,204 +277,265 @@
         inpNum.step = '1';
         inpNum.placeholder = '0';
         inpNum.value = row.count ?? '';
-        inpNum.classList.toggle('zero', Number(row.count||0)===0);
+        inpNum.classList.toggle('zero', Number(row.count || 0) === 0);
 
         inpNum.addEventListener('input', ()=>{
-          const current = Number(row.count)||0;
+          const current = Number(row.count) || 0;
           const totalBefore = sum() - current;
-          const remaining = Math.max(0, (Number(state.totalWorkers)||0) - totalBefore);
-          let v = Math.max(0, Math.floor(Number(inpNum.value||0)));
-          if (state.totalWorkers > 0) v = Math.min(v, remaining); // clamp to capacity
+          const remaining = Math.max(0, (Number(state.totalWorkers) || 0) - totalBefore);
+
+          let v = Math.max(0, Math.floor(Number(inpNum.value || 0)));
+          if (state.totalWorkers > 0) v = Math.min(v, remaining);
+
           row.count = v;
           inpNum.value = String(v);
-          inpNum.classList.toggle('zero', v===0);
-          validateAndSend(); // updates Total selected
-          // no render() here (keeps typing smooth)
+          inpNum.classList.toggle('zero', v === 0);
+
           $('totalSelected').textContent = String(sum());
           $('addRow').disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
+
+          validateAndSend();
         });
         tdNum.appendChild(inpNum);
 
-        // actions
         const tdAct = document.createElement('td');
         tdAct.className = 'row-actions';
+
         const del = document.createElement('button');
         del.type = 'button';
         del.className = 'btn danger';
         del.textContent = 'Remove';
+        del.disabled = state.values.length <= state.minRows;
         del.addEventListener('click', ()=>{
-          if (state.values.length <= state.minRows) return; // never below 2
+          if (state.values.length <= state.minRows) return;
           state.values.splice(idx,1);
-          render(); validateAndSend();
+          render();
+          validateAndSend();
         });
+
         tdAct.appendChild(del);
 
-        tr.appendChild(tdDate); tr.appendChild(tdNum); tr.appendChild(tdAct);
+        tr.appendChild(tdDate);
+        tr.appendChild(tdNum);
+        tr.appendChild(tdAct);
         rows.appendChild(tr);
       });
 
       $('totalSelected').textContent = String(sum());
-      $('totalAllowed').textContent  = String(state.totalWorkers);
-
-      // disable remove buttons if at min rows
-      const canRemove = state.values.length > state.minRows;
-      rows.querySelectorAll('button').forEach(b => b.disabled = !canRemove);
-
-      // disable "Add arrival" if we’re at capacity
+      $('totalAllowed').textContent = String(state.totalWorkers);
       $('addRow').disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
     }
 
     function addRow(prefill={}){
       state.values.push({ date: prefill.date ?? '', count: prefill.count ?? 0 });
-      render(); validateAndSend();
+      render();
+      validateAndSend();
+    }
+
+    function scheduleBoundsUpdate(partial) {
+      clearTimeout(boundsTimer);
+      boundsTimer = setTimeout(() => {
+        setBounds(partial);
+      }, 150);
     }
 
     function setBounds({ startDate, endDate, totalWorkers }){
-      if (startDate != null)    state.startDate = toISO(startDate) || '';
-      if (endDate   != null)    state.endDate   = toISO(endDate)   || '';
-      if (totalWorkers != null) state.totalWorkers = Number(totalWorkers) || 0;
-    
-      // Always have at least two rows
+      const nextStart = startDate != null ? toISO(startDate) || '' : state.startDate;
+      const nextEnd = endDate != null ? toISO(endDate) || '' : state.endDate;
+      const nextWorkers = totalWorkers != null ? Number(totalWorkers) || 0 : state.totalWorkers;
+
+      if (
+        nextStart === state.startDate &&
+        nextEnd === state.endDate &&
+        nextWorkers === state.totalWorkers
+      ) {
+        return;
+      }
+
+      state.startDate = nextStart;
+      state.endDate = nextEnd;
+      state.totalWorkers = nextWorkers;
+
       ensureMinRows();
-    
-      // Row 1: force to start date if present
+
       if (state.startDate) state.values[0].date = state.startDate;
-    
-      // Row 2: if blank, suggest 2/3 through, snapped to month start and clamped
+
       if (state.values[1] && !state.values[1].date && state.startDate && state.endDate){
         let suggested = suggestSecondArrivalMonthStart(state.startDate, state.endDate, {
           pct: 2/3,
           minGapDays: 1
         });
-    
-        // Must be strictly after row 1
+
         const minSecond = nextDay(state.values[0].date);
         if (suggested && suggested < minSecond) suggested = minSecond;
-    
-        // Clamp to end
         if (state.endDate && suggested > state.endDate) suggested = state.endDate;
-    
+
         state.values[1].date = suggested || state.values[1].date || '';
       }
-    
-      // Snap/validate all rows to range and strictly increasing order
+
       state.values.forEach((r,i)=>{
         r.date = toISO(r.date);
         r.date = clampDate(r.date);
-        if (i>0){
+
+        if (i > 0) {
           const prev = state.values[i-1]?.date;
           if (prev && (!r.date || r.date <= prev)) r.date = nextDay(prev);
         }
       });
-    
+
       render();
       validateAndSend();
     }
 
-    // ---------- validation / emit ----------
     function errors(){
       const es = [];
-      for (let i=0;i<state.values.length;i++){
+
+      for (let i = 0; i < state.values.length; i++) {
         const r = state.values[i];
-        if (!r.date){ es.push('All rows must have a date.'); break; }
-        if (state.startDate && r.date < state.startDate){ es.push('A date is before the job start date.'); break; }
-        if (state.endDate   && r.date > state.endDate){ es.push('A date is after the job end date.'); break; }
-        if (i>0){
+
+        if (!r.date) {
+          es.push('All rows must have a date.');
+          break;
+        }
+
+        if (state.startDate && r.date < state.startDate) {
+          es.push('A date is before the job start date.');
+          break;
+        }
+
+        if (state.endDate && r.date > state.endDate) {
+          es.push('A date is after the job end date.');
+          break;
+        }
+
+        if (i > 0) {
           const p = state.values[i-1].date;
-          if (!p){ es.push('Earlier rows must be completed first.'); break; }
-          if (r.date <= p){ es.push('Dates must be strictly increasing with no duplicates.'); break; }
+
+          if (!p) {
+            es.push('Earlier rows must be completed first.');
+            break;
+          }
+
+          if (r.date <= p) {
+            es.push('Dates must be strictly increasing with no duplicates.');
+            break;
+          }
         }
       }
+
       const total = sum();
-      if (state.totalWorkers > 0 && total !== state.totalWorkers){
+
+      if (state.totalWorkers > 0 && total !== state.totalWorkers) {
         es.push(`Total selected (${total}) must equal requested (${state.totalWorkers}).`);
       }
-      if (state.values.length < state.minRows) es.push('At least two arrival rows are required.');
+
+      if (state.values.length < state.minRows) {
+        es.push('At least two arrival rows are required.');
+      }
+
       return es;
     }
 
     function serialize(){
-      return state.values.map(r=>({ date:r.date, count:Number(r.count)||0 }));
+      return state.values.map(r => ({
+        date: r.date,
+        count: Number(r.count) || 0
+      }));
     }
 
     function validateAndSend(){
       const es = errors();
-      $('status').innerHTML = es.length ? `<span class="error">${es[0]}</span>` : 'Looks good. You can submit the form.';
+      const serialized = JSON.stringify(serialize());
+
+      $('status').innerHTML = es.length
+        ? `<span class="error">${es[0]}</span>`
+        : 'Looks good. You can submit the form.';
+
+      if (serialized === lastSentValue && es.length === 0) return;
+      lastSentValue = serialized;
+
       try {
         JFCustomWidget.sendData({
-          value: JSON.stringify(serialize()),
-          valid: es.length===0,
+          value: serialized,
+          valid: es.length === 0,
           message: es[0] || ''
         });
       } catch(_){}
     }
 
-    // ---------- wire up ----------
+    function bindSourceField_(qid, key) {
+      if (!qid || typeof JFCustomWidget.listenFromField !== 'function') return;
+
+      const candidates = [
+        qid,
+        `input_${qid}`,
+        `q${qid}`
+      ];
+
+      candidates.forEach(candidate => {
+        ['change', 'input', 'keyup', 'blur'].forEach(eventName => {
+          try {
+            JFCustomWidget.listenFromField(candidate, eventName, payload => {
+              const value = extractValue(payload);
+              scheduleBoundsUpdate({ [key]: value });
+            });
+          } catch (_) {}
+        });
+      });
+    }
+
     $('addRow').addEventListener('click', ()=>{
-      // Only allow a new row if there’s room (or no limit)
       const atCap = state.totalWorkers > 0 && sum() >= state.totalWorkers;
       if (atCap) return;
       addRow();
     });
 
-    // JF lifecycle
     JFCustomWidget.subscribe('ready', function(){
       const sQ = toQID(JFCustomWidget.getWidgetSetting('startFieldId'));
       const eQ = toQID(JFCustomWidget.getWidgetSetting('endFieldId'));
       const nQ = toQID(JFCustomWidget.getWidgetSetting('totalWorkersFieldId'));
 
-      // initial values
-      (function initPull(){
-        const ids = [sQ,eQ,nQ].filter(Boolean);
-        if (!ids.length) { ensureMinRows(); render(); validateAndSend(); return; }
-        try {
-          JFCustomWidget.getFieldsValueById(ids, (res)=>{
-            let map = {};
-            if (res && res.type === 'event:receiver') {
-              (res.data || []).forEach(r => { map[String(r.selector)] = (r.value && r.value.value) ? r.value.value : r.value; });
-            } else {
-              map = res || {};
-            }
-            setBounds({
-              startDate: map[sQ] || '',
-              endDate:   map[eQ] || '',
-              totalWorkers: Number(map[nQ]) || 0
-            });
-            ensureMinRows();
-            render(); validateAndSend();
-          });
-        } catch(_){
-          ensureMinRows();
-          render(); validateAndSend();
-        }
-      })();
+      const ids = [sQ, eQ, nQ].filter(Boolean);
 
-      // keep dates synced (watchers normalize to ISO before set)
-      startWatcher(sQ, v => setBounds({ startDate: v }));
-      startWatcher(eQ, v => setBounds({ endDate: v }));
-
-      // workers: listen for user typing + one late read to catch slow prefill
-      if (nQ){
-        const key = `input_${nQ}`;
-        const h = (v)=> setBounds({ totalWorkers: Number((v&&v.value)||v)||0 });
-        try { JFCustomWidget.listenFromField(key, 'change', h); } catch(_){}
-        try { JFCustomWidget.listenFromField(key, 'keyup',  h); } catch(_){}
-        setTimeout(()=> readByIdOnce(nQ, v => {
-          const nVal = Number(v);
-          if (!Number.isNaN(nVal) && nVal > 0) setBounds({ totalWorkers: nVal });
-        }), 600);
+      if (!ids.length) {
+        ensureMinRows();
+        render();
+        validateAndSend();
+        return;
       }
+
+      readManyById(ids, map => {
+        setBounds({
+          startDate: map[sQ] || '',
+          endDate: map[eQ] || '',
+          totalWorkers: Number(map[nQ]) || 0
+        });
+      });
+
+      bindSourceField_(sQ, 'startDate');
+      bindSourceField_(eQ, 'endDate');
+      bindSourceField_(nQ, 'totalWorkers');
+
+      setTimeout(() => {
+        readManyById(ids, map => {
+          setBounds({
+            startDate: map[sQ] || '',
+            endDate: map[eQ] || '',
+            totalWorkers: Number(map[nQ]) || 0
+          });
+        });
+      }, 700);
     });
 
     JFCustomWidget.subscribe('submit', function(){
       const es = errors();
-      JFCustomWidget.sendSubmit({ valid: es.length===0, value: JSON.stringify(serialize()) });
+
+      JFCustomWidget.sendSubmit({
+        valid: es.length === 0,
+        value: JSON.stringify(serialize())
+      });
     });
   })();
   </script>
 </body>
 </html>
-
-
-
-
