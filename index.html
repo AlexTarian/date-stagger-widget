@@ -526,6 +526,71 @@ function readManyById(ids, cb, dateIds = []) {
       } catch(_){}
     }
 
+    function bindTotalWorkersField_(qid) {
+  if (!qid || typeof JFCustomWidget.listenFromField !== 'function') return;
+
+  const candidates = [
+    `input_${qid}`,
+    String(qid),
+    `q${qid}`
+  ];
+
+  const handler = (payload) => {
+    const value = extractValue(payload);
+    const n = Number(value);
+
+    console.log('totalWorkers listener payload:', {
+      qid,
+      payload,
+      value,
+      n
+    });
+
+    if (!Number.isNaN(n)) {
+      scheduleBoundsUpdate({ totalWorkers: n });
+    }
+  };
+
+  candidates.forEach(candidate => {
+    ['change', 'keyup', 'input', 'blur'].forEach(eventName => {
+      try {
+        JFCustomWidget.listenFromField(candidate, eventName, handler);
+      } catch (_) {}
+    });
+  });
+}
+
+function hydrateTotalWorkersForLimitedTime_(qid, durationMs = 2000, intervalMs = 300) {
+  if (!qid) return;
+
+  const started = Date.now();
+  let lastValue = '';
+
+  function tick() {
+    readByIdOnce(qid, value => {
+      const cleaned = clean(value);
+      const n = Number(cleaned);
+
+      console.log('totalWorkers hydrate:', {
+        qid,
+        cleaned,
+        n
+      });
+
+      if (cleaned !== '' && cleaned !== lastValue && !Number.isNaN(n)) {
+        lastValue = cleaned;
+        scheduleBoundsUpdate({ totalWorkers: n });
+      }
+
+      if (Date.now() - started < durationMs) {
+        setTimeout(tick, intervalMs);
+      }
+    });
+  }
+
+  tick();
+}
+
     function bindSourceField_(qid, key) {
       if (!qid || typeof JFCustomWidget.listenFromField !== 'function') return;
 
@@ -607,11 +672,11 @@ function readManyById(ids, cb, dateIds = []) {
 
       bindSourceField_(sQ, 'startDate');
       bindSourceField_(eQ, 'endDate');
-      bindSourceField_(nQ, 'totalWorkers');
+      bindTotalWorkersField_(nQ);
 
       hydrateFieldForLimitedTime_(sQ, 'startDate');
       hydrateFieldForLimitedTime_(eQ, 'endDate');
-      hydrateFieldForLimitedTime_(nQ, 'totalWorkers', 1500, 300);
+      hydrateTotalWorkersForLimitedTime_(nQ);
 
       setTimeout(() => {
         readManyById(ids, map => {
