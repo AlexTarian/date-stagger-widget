@@ -162,6 +162,8 @@
 
     function readManyById(ids, cb) {
       const cleanIds = ids.filter(Boolean);
+      const dateIdSet = new Set(dateIds.map(String));
+      
       if (!cleanIds.length) return cb({});
 
       try {
@@ -170,15 +172,18 @@
 
           if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
             cleanIds.forEach(id => {
-              const dateValue = extractDateFromData_(res.data, id);
+              if (dateIdSet.has(String(id))) {
+                const dateValue = extractDateFromData_(res.data, id);
 
-              if (dateValue) {
-                map[id] = dateValue;
-                return;
+                if (dateValue) {
+                  map[id] = dateValue;
+                  return;
+                }
               }
 
               const match = res.data.find(r => {
                 const selector = String(r.selector || '');
+                
                 return (
                   selector === String(id) ||
                   selector === `input_${id}` ||
@@ -583,7 +588,7 @@
           endDate: map[eQ] || '',
           totalWorkers: Number(map[nQ]) || 0
         });
-      });
+      }, [sQ, eQ]);
 
       bindSourceField_(sQ, 'startDate');
       bindSourceField_(eQ, 'endDate');
@@ -600,7 +605,7 @@
             endDate: map[eQ] || '',
             totalWorkers: Number(map[nQ]) || 0
           });
-        });
+        }, [sQ, eQ]);
       }, 700);
     });
 
