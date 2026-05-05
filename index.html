@@ -189,6 +189,15 @@
 
               map[id] = extractValue(match ? match.value : '');
             });
+          } else if (res && typeof res === 'object') {
+            cleanIds.forEach(id => {
+              map[id] = extractValue(
+                res[id] ||
+                res[`input_${id}`] ||
+                res.data ||
+                ''
+              );
+            });
           }
 
           cb(map);
