@@ -130,28 +130,39 @@
     }
 
     function bindVisibilityTrigger_(triggerQid, sQ, eQ, nQ) {
-      if (!triggerQid || typeof JFCustomWidget.listenFromField !== 'function') return;
+  if (!triggerQid || typeof JFCustomWidget.listenFromField !== 'function') return;
 
-      const candidates = [
-        `input_${triggerQid}`,
-        String(triggerQid),
-        `q${triggerQid}`
-      ];
+  const candidates = [
+    `input_${triggerQid}`,
+    String(triggerQid),
+    `q${triggerQid}`
+  ];
 
-      const refresh = () => {
-        setTimeout(() => {
-          hydrateAllFieldsForLimitedTime_(sQ, eQ, nQ, 3000, 300);
-        }, 250);
-      };
+  const refresh = () => {
+    [100, 300, 700, 1200, 2000].forEach(delay => {
+      setTimeout(() => {
+        readManyById([sQ, eQ].filter(Boolean), map => {
+          setBounds({
+            startDate: map[sQ] || undefined,
+            endDate: map[eQ] || undefined
+          });
+        }, [sQ, eQ]);
 
-      candidates.forEach(candidate => {
-        ['change', 'click', 'keyup', 'blur'].forEach(eventName => {
-          try {
-            JFCustomWidget.listenFromField(candidate, eventName, refresh);
-          } catch (_) {}
-        });
-      });
-    }
+        // Worker field gets its own direct hydration path.
+        hydrateTotalWorkersForLimitedTime_(nQ, 1200, 250);
+        bindTotalWorkersField_(nQ);
+      }, delay);
+    });
+  };
+
+  candidates.forEach(candidate => {
+    ['ready', 'change', 'click', 'keyup', 'blur'].forEach(eventName => {
+      try {
+        JFCustomWidget.listenFromField(candidate, eventName, refresh);
+      } catch (_) {}
+    });
+  });
+}
 
     function hydrateAllFieldsForLimitedTime_(sQ, eQ, nQ, durationMs = 2500, intervalMs = 300) {
   const started = Date.now();
@@ -598,7 +609,7 @@ function readManyById(ids, cb, dateIds = []) {
     const n = Number(value);
 
     if (!Number.isNaN(n)) {
-      scheduleBoundsUpdate({ totalWorkers: n });
+      setBounds({ totalWorkers: n });
     }
   };
 
