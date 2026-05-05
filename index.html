@@ -501,7 +501,7 @@
       if (!qid || typeof JFCustomWidget.listenFromField !== 'function') return;
 
       const candidates = [
-        qid,
+        String(qid),
         `input_${qid}`,
         `q${qid}`,
         `month_${qid}`,
@@ -514,13 +514,38 @@
       candidates.forEach(candidate => {
         ['change', 'input', 'keyup', 'blur'].forEach(eventName => {
           try {
-            JFCustomWidget.listenFromField(candidate, eventName, payload => {
-              const value = extractValue(payload);
-              scheduleBoundsUpdate({ [key]: value });
+            JFCustomWidget.listenFromField(candidate, eventName, () => {
+              readByIdOnce(qid, value => {
+                scheduleBoundsUpdate({ [key]: value });
+              });
             });
           } catch (_) {}
         });
       });
+    }
+
+    function hydrateFieldForLimitedTime_(qid, key, durationMs = 3000, intervalMs = 300) {
+      if (!qid) return;
+
+      const started = Date.now();
+      let lastValue = '';
+
+      function tick() {
+        readByIdOnce(qid, value => {
+          const cleaned = clean(value);
+
+          if (cleaned && cleaned !== lastValue) {
+            lastValue = cleaned;
+            scheduleBoundsUpdate({ [key]: cleaned });
+          }
+
+          if (Date.now() - started < durationMs) {
+            setTimeout(tick, intervalMs);
+          }
+        });
+      }
+
+      tick();
     }
 
     $('addRow').addEventListener('click', ()=>{
@@ -554,6 +579,10 @@
       bindSourceField_(sQ, 'startDate');
       bindSourceField_(eQ, 'endDate');
       bindSourceField_(nQ, 'totalWorkers');
+
+      hydrateFieldForLimitedTime_(sQ, 'startDate');
+      hydrateFieldForLimitedTime_(eQ, 'endDate');
+      hydrateFieldForLimitedTime_(nQ, 'totalWorkers', 1500, 300);
 
       setTimeout(() => {
         readManyById(ids, map => {
