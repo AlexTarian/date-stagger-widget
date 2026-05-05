@@ -74,103 +74,203 @@
     </div>
   </div>
 
-  <script>
-  (function(){
-    const $ = (id) => document.getElementById(id);
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
 
-    const state = {
-      startDate: '',
-      endDate: '',
-      totalWorkers: 0,
-      values: [],
-      minRows: 2
-    };
-
-    let boundsTimer = null;
-    let pendingBounds = {};
-    let lastSentValue = '';
-
-    const toQID = (raw) => {
-      const s = String((raw && (raw.value ?? raw)) || '').trim().replace(/^#/, '');
-      const m = s.match(/^input_(\d+)$/i) || s.match(/^q(\d+)/i) || s.match(/^(\d+)$/);
-      return m ? m[1] : null;
-    };
-
-    function clean(value) {
-      return String(value ?? '').trim();
-    }
-
-    function toISO(d){
-      d = clean(d);
-      if (!d) return '';
-      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-
-      const m = d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (m){
-        const [ , mm, dd, yyyy ] = m;
-        return `${yyyy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
-      }
-
-      const dt = new Date(d);
-      if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0,10);
-      return '';
-    }
-
-    function fromISOToNice(iso){
-      if (!iso) return '';
-      const [y,m,d] = iso.split('-');
-      return `${m}/${d}/${y}`;
-    }
-
-    function numberOrUndefined_(value) {
-      const cleaned = clean(value);
-      if (cleaned === '') return undefined;
-
-      const n = Number(cleaned);
-      return Number.isNaN(n) ? undefined : n;
-    }
-
-    function bindVisibilityTrigger_(triggerQid, sQ, eQ, nQ) {
-  if (!triggerQid || typeof JFCustomWidget.listenFromField !== 'function') return;
-
-  const candidates = [
-    `input_${triggerQid}`,
-    String(triggerQid),
-    `q${triggerQid}`
-  ];
-
-  const refresh = () => {
-    [100, 300, 700, 1200, 2000].forEach(delay => {
-      setTimeout(() => {
-        readManyById([sQ, eQ].filter(Boolean), map => {
-          setBounds({
-            startDate: map[sQ] || undefined,
-            endDate: map[eQ] || undefined
-          });
-        }, [sQ, eQ]);
-
-        // Worker field gets its own direct hydration path.
-        hydrateTotalWorkersForLimitedTime_(nQ, 1200, 250);
-        bindTotalWorkersField_(nQ);
-      }, delay);
-    });
+  const state = {
+    startDate: '',
+    endDate: '',
+    totalWorkers: 0,
+    values: [],
+    minRows: 2
   };
 
-  candidates.forEach(candidate => {
-    ['ready', 'change', 'click', 'keyup', 'blur'].forEach(eventName => {
-      try {
-        JFCustomWidget.listenFromField(candidate, eventName, refresh);
-      } catch (_) {}
+  let boundsTimer = null;
+  let pendingBounds = {};
+  let lastSentValue = '';
+
+  const toQID = (raw) => {
+    const s = String((raw && (raw.value ?? raw)) || '').trim().replace(/^#/, '');
+    const m = s.match(/^input_(\d+)$/i) || s.match(/^q(\d+)/i) || s.match(/^(\d+)$/);
+    return m ? m[1] : null;
+  };
+
+  function clean(value) {
+    return String(value ?? '').trim();
+  }
+
+  function toISO(d) {
+    d = clean(d);
+    if (!d) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+
+    const m = d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) {
+      const [, mm, dd, yyyy] = m;
+      return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+    }
+
+    const dt = new Date(d);
+    if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+    return '';
+  }
+
+  function fromISOToNice(iso) {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-');
+    return `${m}/${d}/${y}`;
+  }
+
+  function numberOrUndefined_(value) {
+    const cleaned = clean(value);
+    if (cleaned === '') return undefined;
+
+    const n = Number(cleaned);
+    return Number.isNaN(n) ? undefined : n;
+  }
+
+  function extractValue(payload) {
+    if (payload == null) return '';
+
+    if (
+      typeof payload === 'string' ||
+      typeof payload === 'number' ||
+      typeof payload === 'boolean'
+    ) {
+      return String(payload);
+    }
+
+    if (Array.isArray(payload)) {
+      return payload.map(extractValue).filter(Boolean).join(' ');
+    }
+
+    if (typeof payload === 'object') {
+      if (payload.value && typeof payload.value === 'object') {
+        return extractValue(
+          payload.value.value ??
+          payload.value.text ??
+          payload.value.answer
+        );
+      }
+
+      return extractValue(
+        payload.value ??
+        payload.data ??
+        payload.text ??
+        payload.answer
+      );
+    }
+
+    return '';
+  }
+
+  function extractDateFromData_(data, qid) {
+    if (!Array.isArray(data)) return '';
+
+    const parts = {};
+
+    data.forEach(r => {
+      const selector = String(r.selector || '');
+      const value = extractValue(r.value);
+
+      if (selector === `month_${qid}`) parts.month = value;
+      if (selector === `day_${qid}`) parts.day = value;
+      if (selector === `year_${qid}`) parts.year = value;
+      if (selector === `lite_mode_${qid}`) parts.lite = value;
+      if (selector === `input_${qid}` || selector === `input_${qid}_pick`) {
+        parts.input = value;
+      }
     });
-  });
-}
 
-    function hydrateAllFieldsForLimitedTime_(sQ, eQ, nQ, durationMs = 2500, intervalMs = 300) {
-  const started = Date.now();
+    if (parts.month && parts.day && parts.year) {
+      return `${String(parts.month).padStart(2, '0')}/${String(parts.day).padStart(2, '0')}/${parts.year}`;
+    }
 
-  function tick() {
+    return parts.input || parts.lite || '';
+  }
+
+  function readByIdOnce(qid, cb) {
+    if (!qid) return cb('');
+
+    const id = String(qid);
+
+    try {
+      JFCustomWidget.getFieldsValueById([id], (res) => {
+        let value = '';
+
+        if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
+          const exact =
+            res.data.find(r => String(r.selector) === id) ||
+            res.data.find(r => String(r.selector) === `input_${id}`) ||
+            res.data.find(r => String(r.selector) === `q${id}`);
+
+          value = extractValue(exact ? exact.value : '');
+        } else if (res && typeof res === 'object') {
+          value = extractValue(
+            res[id] ||
+            res[`input_${id}`] ||
+            res[`q${id}`] ||
+            res.data ||
+            ''
+          );
+        }
+
+        cb(value);
+      });
+    } catch (_) {
+      cb('');
+    }
+  }
+
+  function readManyById(ids, cb, dateIds = []) {
+    const cleanIds = ids.filter(Boolean).map(String);
+    const dateIdSet = new Set(dateIds.filter(Boolean).map(String));
+
+    if (!cleanIds.length) return cb({});
+
+    try {
+      JFCustomWidget.getFieldsValueById(cleanIds, (res) => {
+        const map = {};
+
+        if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
+          cleanIds.forEach(id => {
+            if (dateIdSet.has(id)) {
+              const dateValue = extractDateFromData_(res.data, id);
+              if (dateValue) {
+                map[id] = dateValue;
+                return;
+              }
+            }
+
+            const exact =
+              res.data.find(r => String(r.selector) === id) ||
+              res.data.find(r => String(r.selector) === `input_${id}`) ||
+              res.data.find(r => String(r.selector) === `q${id}`);
+
+            map[id] = extractValue(exact ? exact.value : '');
+          });
+        } else if (res && typeof res === 'object') {
+          cleanIds.forEach(id => {
+            map[id] = extractValue(
+              res[id] ||
+              res[`input_${id}`] ||
+              res[`q${id}`] ||
+              ''
+            );
+          });
+        }
+
+        cb(map);
+      });
+    } catch (_) {
+      cb({});
+    }
+  }
+
+  function refreshAllSourceValues_(sQ, eQ, nQ) {
     readManyById([sQ, eQ, nQ].filter(Boolean), map => {
-      setBounds({
+      scheduleBoundsUpdate({
         startDate: map[sQ] || undefined,
         endDate: map[eQ] || undefined,
         totalWorkers: numberOrUndefined_(map[nQ])
@@ -180,591 +280,468 @@
     readByIdOnce(nQ, value => {
       const n = numberOrUndefined_(value);
       if (n !== undefined) {
-        setBounds({ totalWorkers: n });
-      }
-    });
-
-    if (Date.now() - started < durationMs) {
-      setTimeout(tick, intervalMs);
-    }
-  }
-
-  tick();
-}
-
-    function extractValue(payload) {
-      if (payload == null) return '';
-
-      if (typeof payload === 'string' || typeof payload === 'number' || typeof payload === 'boolean') {
-        return String(payload);
-      }
-
-      if (Array.isArray(payload)) {
-        return payload.map(extractValue).filter(Boolean).join(' ');
-      }
-
-      if (typeof payload === 'object') {
-        if (payload.value && typeof payload.value === 'object') {
-          return extractValue(payload.value.value ?? payload.value.text ?? payload.value.answer);
-        }
-
-        return extractValue(payload.value ?? payload.data ?? payload.text ?? payload.answer);
-      }
-
-      return '';
-    }
-
-    function readByIdOnce(qid, cb){
-      if (!qid) return cb('');
-
-      try {
-        JFCustomWidget.getFieldsValueById([qid], (res)=>{
-          let value = '';
-
-          if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
-            const match = res.data.find(r =>
-              String(r.selector) === String(qid) ||
-              String(r.selector) === `input_${qid}` ||
-              String(r.selector).includes(String(qid))
-            );
-
-            value = extractValue(match ? match.value : res.data[0]?.value);
-          } else if (res && typeof res === 'object') {
-            value = extractValue(res[qid] ?? res[`input_${qid}`] ?? res.data);
-          }
-
-          cb(value);
-        });
-      } catch(_) {
-        cb('');
-      }
-    }
-
-function readManyById(ids, cb, dateIds = []) {
-  const cleanIds = ids.filter(Boolean).map(String);
-  const dateIdSet = new Set(dateIds.filter(Boolean).map(String));
-
-  if (!cleanIds.length) return cb({});
-
-  try {
-    JFCustomWidget.getFieldsValueById(cleanIds, (res) => {
-
-      const map = {};
-
-      if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
-        cleanIds.forEach(id => {
-          if (dateIdSet.has(id)) {
-            const dateValue = extractDateFromData_(res.data, id);
-            if (dateValue) {
-              map[id] = dateValue;
-              return;
-            }
-          }
-
-          const match = res.data.find(r => {
-            const selector = String(r.selector || '');
-            return (
-              selector === id ||
-              selector === `input_${id}` ||
-              selector === `q${id}` ||
-              selector.includes(`_${id}`)
-            );
-          });
-
-          map[id] = extractValue(match ? match.value : '');
-        });
-      } else if (res && typeof res === 'object') {
-        cleanIds.forEach(id => {
-          map[id] = extractValue(
-            res[id] ||
-            res[`input_${id}`] ||
-            res[`q${id}`] ||
-            ''
-          );
-        });
-      }
-
-      cb(map);
-    });
-  } catch (err) {
-    console.warn('readManyById failed:', err);
-    cb({});
-  }
-}
-
-    function extractDateFromData_(data, qid) {
-      if (!Array.isArray(data)) return '';
-
-      const parts = {};
-
-      data.forEach(r => {
-        const selector = String(r.selector || '');
-        const value = extractValue(r.value);
-
-        if (selector === `month_${qid}`) parts.month = value;
-        if (selector === `day_${qid}`) parts.day = value;
-        if (selector === `year_${qid}`) parts.year = value;
-        if (selector === `lite_mode_${qid}`) parts.lite = value;
-        if (selector === `input_${qid}` || selector === `input_${qid}_pick`) parts.input = value;
-      });
-
-      if (parts.month && parts.day && parts.year) {
-        return `${String(parts.month).padStart(2, '0')}/${String(parts.day).padStart(2, '0')}/${parts.year}`;
-      }
-
-      return parts.input || parts.lite || '';
-    }
-
-    function nextDay(iso){
-      if (!iso) return '';
-      const d = new Date(iso + 'T00:00:00Z');
-      if (Number.isNaN(d.getTime())) return '';
-      d.setUTCDate(d.getUTCDate()+1);
-      return d.toISOString().slice(0,10);
-    }
-
-    function clampDate(v){
-      if (!v) return v;
-      if (state.startDate && v < state.startDate) return state.startDate;
-      if (state.endDate && v > state.endDate) return state.endDate;
-      return v;
-    }
-
-    function suggestSecondArrivalMonthStart(startISO, endISO, { pct = 2/3, minGapDays = 1 } = {}) {
-      if (!startISO || !endISO) return '';
-      const start = new Date(startISO + 'T00:00:00Z');
-      const end = new Date(endISO + 'T00:00:00Z');
-      if (isNaN(start) || isNaN(end) || end <= start) return '';
-
-      const mid = new Date(start.getTime() + (end - start) * pct);
-      const monthStart = new Date(Date.UTC(mid.getUTCFullYear(), mid.getUTCMonth(), 1));
-
-      const minAllowed = new Date(Date.UTC(
-        start.getUTCFullYear(),
-        start.getUTCMonth(),
-        start.getUTCDate() + minGapDays
-      ));
-
-      let picked = monthStart < minAllowed ? minAllowed : monthStart;
-      if (picked > end) picked = new Date(end);
-
-      return picked.toISOString().slice(0,10);
-    }
-
-    const sum = () => state.values.reduce((a,r)=> a + (Number(r.count)||0), 0);
-
-    function ensureMinRows(){
-      while (state.values.length < state.minRows) {
-        state.values.push({ date:'', count:0 });
-      }
-    }
-
-    function render(){
-      const rows = $('rows');
-      rows.innerHTML = '';
-
-      $('meta').textContent = `${fromISOToNice(state.startDate) || 'Start'} — ${fromISOToNice(state.endDate) || 'End'} • ${state.totalWorkers} workers`;
-
-      state.values.forEach((row, idx)=>{
-        const tr = document.createElement('tr');
-
-        const tdDate = document.createElement('td');
-        const inpDate = document.createElement('input');
-        inpDate.type = 'date';
-
-        if (idx === 0 && !row.date && state.startDate) row.date = state.startDate;
-
-        const prev = idx > 0 ? (state.values[idx-1]?.date || '') : '';
-        const minForThis = idx === 0 ? state.startDate : (prev ? nextDay(prev) : state.startDate);
-
-        if (minForThis) inpDate.min = minForThis;
-        if (state.endDate) inpDate.max = state.endDate;
-
-        inpDate.value = row.date || '';
-        inpDate.addEventListener('change', ()=>{
-          let v = toISO(inpDate.value);
-          v = clampDate(v);
-
-          if (idx > 0) {
-            const p = state.values[idx-1]?.date;
-            if (p && (!v || v <= p)) v = nextDay(p);
-          }
-
-          row.date = v || '';
-          inpDate.value = row.date;
-
-          render();
-          validateAndSend();
-        });
-        tdDate.appendChild(inpDate);
-
-        const tdNum = document.createElement('td');
-        const inpNum = document.createElement('input');
-        inpNum.type = 'number';
-        inpNum.min = '0';
-        inpNum.step = '1';
-        inpNum.placeholder = '0';
-        inpNum.value = row.count ?? '';
-        inpNum.classList.toggle('zero', Number(row.count || 0) === 0);
-
-        inpNum.addEventListener('input', ()=>{
-          const current = Number(row.count) || 0;
-          const totalBefore = sum() - current;
-          const remaining = Math.max(0, (Number(state.totalWorkers) || 0) - totalBefore);
-
-          let v = Math.max(0, Math.floor(Number(inpNum.value || 0)));
-          if (state.totalWorkers > 0) v = Math.min(v, remaining);
-
-          row.count = v;
-          inpNum.value = String(v);
-          inpNum.classList.toggle('zero', v === 0);
-
-          $('totalSelected').textContent = String(sum());
-          $('addRow').disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
-
-          validateAndSend();
-        });
-        tdNum.appendChild(inpNum);
-
-        const tdAct = document.createElement('td');
-        tdAct.className = 'row-actions';
-
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.className = 'btn danger';
-        del.textContent = 'Remove';
-        del.disabled = state.values.length <= state.minRows;
-        del.addEventListener('click', ()=>{
-          if (state.values.length <= state.minRows) return;
-          state.values.splice(idx,1);
-          render();
-          validateAndSend();
-        });
-
-        tdAct.appendChild(del);
-
-        tr.appendChild(tdDate);
-        tr.appendChild(tdNum);
-        tr.appendChild(tdAct);
-        rows.appendChild(tr);
-      });
-
-      $('totalSelected').textContent = String(sum());
-      $('totalAllowed').textContent = String(state.totalWorkers);
-      $('addRow').disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
-    }
-
-    function addRow(prefill={}){
-      state.values.push({ date: prefill.date ?? '', count: prefill.count ?? 0 });
-      render();
-      validateAndSend();
-    }
-
-    function scheduleBoundsUpdate(partial) {
-      pendingBounds = {
-        ...pendingBounds,
-        ...partial
-      };
-
-      clearTimeout(boundsTimer);
-
-      boundsTimer = setTimeout(() => {
-        const update = pendingBounds;
-        pendingBounds = {};
-        setBounds(update);
-      }, 150);
-    }
-
-    function setBounds({ startDate, endDate, totalWorkers }){
-      const nextStart =
-        startDate !== undefined ? toISO(startDate) || '' : state.startDate;
-
-      const nextEnd =
-        endDate !== undefined ? toISO(endDate) || '' : state.endDate;
-
-      const nextWorkers =
-        totalWorkers !== undefined ? Number(totalWorkers) || 0 : state.totalWorkers;
-
-      if (
-        nextStart === state.startDate &&
-        nextEnd === state.endDate &&
-        nextWorkers === state.totalWorkers
-      ) {
-        return;
-      }
-
-      state.startDate = nextStart;
-      state.endDate = nextEnd;
-      state.totalWorkers = nextWorkers;
-
-      ensureMinRows();
-
-      if (state.startDate) state.values[0].date = state.startDate;
-
-      if (state.values[1] && !state.values[1].date && state.startDate && state.endDate){
-        let suggested = suggestSecondArrivalMonthStart(state.startDate, state.endDate, {
-          pct: 2/3,
-          minGapDays: 1
-        });
-
-        const minSecond = nextDay(state.values[0].date);
-        if (suggested && suggested < minSecond) suggested = minSecond;
-        if (state.endDate && suggested > state.endDate) suggested = state.endDate;
-
-        state.values[1].date = suggested || state.values[1].date || '';
-      }
-
-      state.values.forEach((r,i)=>{
-        r.date = toISO(r.date);
-        r.date = clampDate(r.date);
-
-        if (i > 0) {
-          const prev = state.values[i-1]?.date;
-          if (prev && (!r.date || r.date <= prev)) r.date = nextDay(prev);
-        }
-      });
-
-      render();
-      validateAndSend();
-    }
-
-    function errors(){
-      const es = [];
-
-      for (let i = 0; i < state.values.length; i++) {
-        const r = state.values[i];
-
-        if (!r.date) {
-          es.push('All rows must have a date.');
-          break;
-        }
-
-        if (state.startDate && r.date < state.startDate) {
-          es.push('A date is before the job start date.');
-          break;
-        }
-
-        if (state.endDate && r.date > state.endDate) {
-          es.push('A date is after the job end date.');
-          break;
-        }
-
-        if (i > 0) {
-          const p = state.values[i-1].date;
-
-          if (!p) {
-            es.push('Earlier rows must be completed first.');
-            break;
-          }
-
-          if (r.date <= p) {
-            es.push('Dates must be strictly increasing with no duplicates.');
-            break;
-          }
-        }
-      }
-
-      const total = sum();
-
-      if (state.totalWorkers > 0 && total !== state.totalWorkers) {
-        es.push(`Total selected (${total}) must equal requested (${state.totalWorkers}).`);
-      }
-
-      if (state.values.length < state.minRows) {
-        es.push('At least two arrival rows are required.');
-      }
-
-      return es;
-    }
-
-    function serialize(){
-      return state.values.map(r => ({
-        date: r.date,
-        count: Number(r.count) || 0
-      }));
-    }
-
-    function validateAndSend(){
-      const es = errors();
-      const serialized = JSON.stringify(serialize());
-
-      $('status').innerHTML = es.length
-        ? `<span class="error">${es[0]}</span>`
-        : 'Looks good. You can submit the form.';
-
-      if (serialized === lastSentValue && es.length === 0) return;
-      lastSentValue = serialized;
-
-      try {
-        JFCustomWidget.sendData({
-          value: serialized,
-          valid: es.length === 0,
-          message: es[0] || ''
-        });
-      } catch(_){}
-    }
-
-    function bindTotalWorkersField_(qid) {
-  if (!qid || typeof JFCustomWidget.listenFromField !== 'function') return;
-
-  const candidates = [
-    `input_${qid}`,
-    String(qid),
-    `q${qid}`
-  ];
-
-  const handler = (payload) => {
-    const value = extractValue(payload);
-    const n = Number(value);
-
-    if (!Number.isNaN(n)) {
-      setBounds({ totalWorkers: n });
-    }
-  };
-
-  candidates.forEach(candidate => {
-    ['ready', 'change', 'keyup', 'input', 'blur'].forEach(eventName => {
-      try {
-        JFCustomWidget.listenFromField(candidate, eventName, handler);
-      } catch (_) {}
-    });
-  });
-}
-
-function hydrateTotalWorkersForLimitedTime_(qid, durationMs = 2000, intervalMs = 300) {
-  if (!qid) return;
-
-  const started = Date.now();
-  let lastValue = '';
-
-  function tick() {
-    readByIdOnce(qid, value => {
-      const cleaned = clean(value);
-      const n = Number(cleaned);
-
-      if (cleaned !== '' && cleaned !== lastValue && !Number.isNaN(n)) {
-        lastValue = cleaned;
         scheduleBoundsUpdate({ totalWorkers: n });
       }
-
-      if (Date.now() - started < durationMs) {
-        setTimeout(tick, intervalMs);
-      }
     });
   }
 
-  tick();
-}
+  function bindVisibilityTrigger_(triggerQid, sQ, eQ, nQ) {
+    if (!triggerQid || typeof JFCustomWidget.listenFromField !== 'function') return;
 
-    function bindSourceField_(qid, key) {
-      if (!qid || typeof JFCustomWidget.listenFromField !== 'function') return;
+    const candidates = [
+      `input_${triggerQid}`,
+      String(triggerQid),
+      `q${triggerQid}`
+    ];
 
-      const candidates = [
-        String(qid),
-        `input_${qid}`,
-        `q${qid}`,
-        `month_${qid}`,
-        `day_${qid}`,
-        `year_${qid}`,
-        `lite_mode_${qid}`,
-        `input_${qid}_pick`
-      ];
-
-      candidates.forEach(candidate => {
-        ['change', 'input', 'keyup', 'blur'].forEach(eventName => {
-          try {
-            JFCustomWidget.listenFromField(candidate, eventName, () => {
-              readByIdOnce(qid, value => {
-                scheduleBoundsUpdate({ [key]: value });
-              });
-            });
-          } catch (_) {}
-        });
+    const refresh = () => {
+      [100, 400, 900, 1500].forEach(delay => {
+        setTimeout(() => refreshAllSourceValues_(sQ, eQ, nQ), delay);
       });
-    }
+    };
 
-    function hydrateFieldForLimitedTime_(qid, key, durationMs = 3000, intervalMs = 300) {
-      if (!qid) return;
-
-      const started = Date.now();
-      let lastValue = '';
-
-      function tick() {
-        readByIdOnce(qid, value => {
-          const cleaned = clean(value);
-
-          if (cleaned && cleaned !== lastValue) {
-            lastValue = cleaned;
-            scheduleBoundsUpdate({ [key]: cleaned });
-          }
-
-          if (Date.now() - started < durationMs) {
-            setTimeout(tick, intervalMs);
-          }
-        });
-      }
-
-      tick();
-    }
-
-    $('addRow').addEventListener('click', ()=>{
-      const atCap = state.totalWorkers > 0 && sum() >= state.totalWorkers;
-      if (atCap) return;
-      addRow();
+    candidates.forEach(candidate => {
+      ['ready', 'change', 'click', 'keyup', 'input', 'blur'].forEach(eventName => {
+        try {
+          JFCustomWidget.listenFromField(candidate, eventName, refresh);
+        } catch (_) {}
+      });
     });
+  }
 
-    JFCustomWidget.subscribe('ready', function(){
-      const sQ = toQID(JFCustomWidget.getWidgetSetting('startFieldId'));
-      const eQ = toQID(JFCustomWidget.getWidgetSetting('endFieldId'));
-      const nQ = toQID(JFCustomWidget.getWidgetSetting('totalWorkersFieldId'));
-      const visibilityQ = toQID(JFCustomWidget.getWidgetSetting('visibilityTriggerFieldId'));
-      bindVisibilityTrigger_(visibilityQ, sQ, eQ, nQ);
+  function nextDay(iso) {
+    if (!iso) return '';
+    const d = new Date(iso + 'T00:00:00Z');
+    if (Number.isNaN(d.getTime())) return '';
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }
 
-      const ids = [sQ, eQ, nQ].filter(Boolean);
+  function clampDate(v) {
+    if (!v) return v;
+    if (state.startDate && v < state.startDate) return state.startDate;
+    if (state.endDate && v > state.endDate) return state.endDate;
+    return v;
+  }
 
-      if (!ids.length) {
-        ensureMinRows();
+  function suggestSecondArrivalMonthStart(startISO, endISO, { pct = 2 / 3, minGapDays = 1 } = {}) {
+    if (!startISO || !endISO) return '';
+
+    const start = new Date(startISO + 'T00:00:00Z');
+    const end = new Date(endISO + 'T00:00:00Z');
+
+    if (isNaN(start) || isNaN(end) || end <= start) return '';
+
+    const mid = new Date(start.getTime() + (end - start) * pct);
+    const monthStart = new Date(Date.UTC(mid.getUTCFullYear(), mid.getUTCMonth(), 1));
+
+    const minAllowed = new Date(Date.UTC(
+      start.getUTCFullYear(),
+      start.getUTCMonth(),
+      start.getUTCDate() + minGapDays
+    ));
+
+    let picked = monthStart < minAllowed ? minAllowed : monthStart;
+    if (picked > end) picked = new Date(end);
+
+    return picked.toISOString().slice(0, 10);
+  }
+
+  const sum = () => state.values.reduce((a, r) => a + (Number(r.count) || 0), 0);
+
+  function ensureMinRows() {
+    while (state.values.length < state.minRows) {
+      state.values.push({ date: '', count: 0 });
+    }
+  }
+
+  function render() {
+    const rows = $('rows');
+    rows.innerHTML = '';
+
+    $('meta').textContent =
+      `${fromISOToNice(state.startDate) || 'Start'} — ${fromISOToNice(state.endDate) || 'End'} • ${state.totalWorkers} workers`;
+
+    state.values.forEach((row, idx) => {
+      const tr = document.createElement('tr');
+
+      const tdDate = document.createElement('td');
+      const inpDate = document.createElement('input');
+      inpDate.type = 'date';
+
+      if (idx === 0 && !row.date && state.startDate) row.date = state.startDate;
+
+      const prev = idx > 0 ? (state.values[idx - 1]?.date || '') : '';
+      const minForThis = idx === 0 ? state.startDate : (prev ? nextDay(prev) : state.startDate);
+
+      if (minForThis) inpDate.min = minForThis;
+      if (state.endDate) inpDate.max = state.endDate;
+
+      inpDate.value = row.date || '';
+      inpDate.addEventListener('change', () => {
+        let v = toISO(inpDate.value);
+        v = clampDate(v);
+
+        if (idx > 0) {
+          const p = state.values[idx - 1]?.date;
+          if (p && (!v || v <= p)) v = nextDay(p);
+        }
+
+        row.date = v || '';
+        inpDate.value = row.date;
+
         render();
         validateAndSend();
-        return;
+      });
+      tdDate.appendChild(inpDate);
+
+      const tdNum = document.createElement('td');
+      const inpNum = document.createElement('input');
+      inpNum.type = 'number';
+      inpNum.min = '0';
+      inpNum.step = '1';
+      inpNum.placeholder = '0';
+      inpNum.value = row.count ?? '';
+      inpNum.classList.toggle('zero', Number(row.count || 0) === 0);
+
+      inpNum.addEventListener('input', () => {
+        const current = Number(row.count) || 0;
+        const totalBefore = sum() - current;
+        const remaining = Math.max(0, (Number(state.totalWorkers) || 0) - totalBefore);
+
+        let v = Math.max(0, Math.floor(Number(inpNum.value || 0)));
+        if (state.totalWorkers > 0) v = Math.min(v, remaining);
+
+        row.count = v;
+        inpNum.value = String(v);
+        inpNum.classList.toggle('zero', v === 0);
+
+        $('totalSelected').textContent = String(sum());
+        $('addRow').disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
+
+        validateAndSend();
+      });
+      tdNum.appendChild(inpNum);
+
+      const tdAct = document.createElement('td');
+      tdAct.className = 'row-actions';
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'btn danger';
+      del.textContent = 'Remove';
+      del.disabled = state.values.length <= state.minRows;
+      del.addEventListener('click', () => {
+        if (state.values.length <= state.minRows) return;
+        state.values.splice(idx, 1);
+        render();
+        validateAndSend();
+      });
+
+      tdAct.appendChild(del);
+
+      tr.appendChild(tdDate);
+      tr.appendChild(tdNum);
+      tr.appendChild(tdAct);
+      rows.appendChild(tr);
+    });
+
+    $('totalSelected').textContent = String(sum());
+    $('totalAllowed').textContent = String(state.totalWorkers);
+    $('addRow').disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
+  }
+
+  function addRow(prefill = {}) {
+    state.values.push({ date: prefill.date ?? '', count: prefill.count ?? 0 });
+    render();
+    validateAndSend();
+  }
+
+  function scheduleBoundsUpdate(partial) {
+    pendingBounds = {
+      ...pendingBounds,
+      ...partial
+    };
+
+    clearTimeout(boundsTimer);
+
+    boundsTimer = setTimeout(() => {
+      const update = pendingBounds;
+      pendingBounds = {};
+      setBounds(update);
+    }, 150);
+  }
+
+  function setBounds({ startDate, endDate, totalWorkers }) {
+    const nextStart =
+      startDate !== undefined ? toISO(startDate) || '' : state.startDate;
+
+    const nextEnd =
+      endDate !== undefined ? toISO(endDate) || '' : state.endDate;
+
+    const nextWorkers =
+      totalWorkers !== undefined ? Number(totalWorkers) || 0 : state.totalWorkers;
+
+    if (
+      nextStart === state.startDate &&
+      nextEnd === state.endDate &&
+      nextWorkers === state.totalWorkers
+    ) {
+      return;
+    }
+
+    state.startDate = nextStart;
+    state.endDate = nextEnd;
+    state.totalWorkers = nextWorkers;
+
+    ensureMinRows();
+
+    if (state.startDate) state.values[0].date = state.startDate;
+
+    if (state.values[1] && !state.values[1].date && state.startDate && state.endDate) {
+      let suggested = suggestSecondArrivalMonthStart(state.startDate, state.endDate, {
+        pct: 2 / 3,
+        minGapDays: 1
+      });
+
+      const minSecond = nextDay(state.values[0].date);
+      if (suggested && suggested < minSecond) suggested = minSecond;
+      if (state.endDate && suggested > state.endDate) suggested = state.endDate;
+
+      state.values[1].date = suggested || state.values[1].date || '';
+    }
+
+    state.values.forEach((r, i) => {
+      r.date = toISO(r.date);
+      r.date = clampDate(r.date);
+
+      if (i > 0) {
+        const prev = state.values[i - 1]?.date;
+        if (prev && (!r.date || r.date <= prev)) r.date = nextDay(prev);
+      }
+    });
+
+    render();
+    validateAndSend();
+  }
+
+  function errors() {
+    const es = [];
+
+    for (let i = 0; i < state.values.length; i++) {
+      const r = state.values[i];
+
+      if (!r.date) {
+        es.push('All rows must have a date.');
+        break;
       }
 
-      readManyById(ids, map => {
-        setBounds({
-          startDate: map[sQ] || undefined,
-          endDate: map[eQ] || undefined,
-          totalWorkers: numberOrUndefined_(map[nQ])
-        });
-      }, [sQ, eQ]);
+      if (state.startDate && r.date < state.startDate) {
+        es.push('A date is before the job start date.');
+        break;
+      }
 
-      bindSourceField_(sQ, 'startDate');
-      bindSourceField_(eQ, 'endDate');
-      bindTotalWorkersField_(nQ);
+      if (state.endDate && r.date > state.endDate) {
+        es.push('A date is after the job end date.');
+        break;
+      }
 
-      hydrateFieldForLimitedTime_(sQ, 'startDate', 1800, 300);
-      hydrateFieldForLimitedTime_(eQ, 'endDate', 1800, 300);
-      hydrateTotalWorkersForLimitedTime_(nQ, 1200, 300);
+      if (i > 0) {
+        const p = state.values[i - 1].date;
 
-      setTimeout(() => {
-        readManyById(ids, map => {
-          setBounds({
-            startDate: map[sQ] || undefined,
-            endDate: map[eQ] || undefined,
-            totalWorkers: numberOrUndefined_(map[nQ])
-          });
-        }, [sQ, eQ]);
-      }, 700);
-    });
+        if (!p) {
+          es.push('Earlier rows must be completed first.');
+          break;
+        }
 
-    JFCustomWidget.subscribe('submit', function(){
-      const es = errors();
+        if (r.date <= p) {
+          es.push('Dates must be strictly increasing with no duplicates.');
+          break;
+        }
+      }
+    }
 
-      JFCustomWidget.sendSubmit({
+    const total = sum();
+
+    if (state.totalWorkers > 0 && total !== state.totalWorkers) {
+      es.push(`Total selected (${total}) must equal requested (${state.totalWorkers}).`);
+    }
+
+    if (state.values.length < state.minRows) {
+      es.push('At least two arrival rows are required.');
+    }
+
+    return es;
+  }
+
+  function serialize() {
+    return state.values.map(r => ({
+      date: r.date,
+      count: Number(r.count) || 0
+    }));
+  }
+
+  function validateAndSend() {
+    const es = errors();
+    const serialized = JSON.stringify(serialize());
+
+    $('status').innerHTML = es.length
+      ? `<span class="error">${es[0]}</span>`
+      : 'Looks good. You can submit the form.';
+
+    if (serialized === lastSentValue && es.length === 0) return;
+    lastSentValue = serialized;
+
+    try {
+      JFCustomWidget.sendData({
+        value: serialized,
         valid: es.length === 0,
-        value: JSON.stringify(serialize())
+        message: es[0] || ''
+      });
+    } catch (_) {}
+  }
+
+  function bindSourceField_(qid, key) {
+    if (!qid || typeof JFCustomWidget.listenFromField !== 'function') return;
+
+    const candidates = [
+      String(qid),
+      `input_${qid}`,
+      `q${qid}`,
+      `month_${qid}`,
+      `day_${qid}`,
+      `year_${qid}`,
+      `lite_mode_${qid}`,
+      `input_${qid}_pick`
+    ];
+
+    candidates.forEach(candidate => {
+      ['ready', 'change', 'input', 'keyup', 'blur'].forEach(eventName => {
+        try {
+          JFCustomWidget.listenFromField(candidate, eventName, () => {
+            readByIdOnce(qid, value => {
+              scheduleBoundsUpdate({ [key]: value });
+            });
+          });
+        } catch (_) {}
       });
     });
-  })();
-  </script>
+  }
+
+  function bindTotalWorkersField_(qid) {
+    if (!qid || typeof JFCustomWidget.listenFromField !== 'function') return;
+
+    const candidates = [
+      `input_${qid}`,
+      String(qid),
+      `q${qid}`
+    ];
+
+    const handler = (payload) => {
+      const n = numberOrUndefined_(extractValue(payload));
+      if (n !== undefined) {
+        scheduleBoundsUpdate({ totalWorkers: n });
+      }
+    };
+
+    candidates.forEach(candidate => {
+      ['ready', 'change', 'keyup', 'input', 'blur'].forEach(eventName => {
+        try {
+          JFCustomWidget.listenFromField(candidate, eventName, handler);
+        } catch (_) {}
+      });
+    });
+  }
+
+  function hydrateFieldForLimitedTime_(qid, key, durationMs = 1500, intervalMs = 300) {
+    if (!qid) return;
+
+    const started = Date.now();
+    let lastValue = '';
+
+    function tick() {
+      readByIdOnce(qid, value => {
+        const cleaned = clean(value);
+
+        if (cleaned && cleaned !== lastValue) {
+          lastValue = cleaned;
+          scheduleBoundsUpdate({ [key]: cleaned });
+        }
+
+        if (Date.now() - started < durationMs) {
+          setTimeout(tick, intervalMs);
+        }
+      });
+    }
+
+    tick();
+  }
+
+  function hydrateTotalWorkersForLimitedTime_(qid, durationMs = 1500, intervalMs = 300) {
+    if (!qid) return;
+
+    const started = Date.now();
+    let lastValue = '';
+
+    function tick() {
+      readByIdOnce(qid, value => {
+        const n = numberOrUndefined_(value);
+
+        if (n !== undefined && String(n) !== lastValue) {
+          lastValue = String(n);
+          scheduleBoundsUpdate({ totalWorkers: n });
+        }
+
+        if (Date.now() - started < durationMs) {
+          setTimeout(tick, intervalMs);
+        }
+      });
+    }
+
+    tick();
+  }
+
+  $('addRow').addEventListener('click', () => {
+    const atCap = state.totalWorkers > 0 && sum() >= state.totalWorkers;
+    if (atCap) return;
+    addRow();
+  });
+
+  JFCustomWidget.subscribe('ready', function () {
+    const sQ = toQID(JFCustomWidget.getWidgetSetting('startFieldId'));
+    const eQ = toQID(JFCustomWidget.getWidgetSetting('endFieldId'));
+    const nQ = toQID(JFCustomWidget.getWidgetSetting('totalWorkersFieldId'));
+    const visibilityQ = toQID(JFCustomWidget.getWidgetSetting('visibilityTriggerFieldId'));
+
+    const ids = [sQ, eQ, nQ].filter(Boolean);
+
+    ensureMinRows();
+    render();
+    validateAndSend();
+
+    refreshAllSourceValues_(sQ, eQ, nQ);
+
+    bindSourceField_(sQ, 'startDate');
+    bindSourceField_(eQ, 'endDate');
+    bindTotalWorkersField_(nQ);
+    bindVisibilityTrigger_(visibilityQ, sQ, eQ, nQ);
+
+    hydrateFieldForLimitedTime_(sQ, 'startDate', 1500, 300);
+    hydrateFieldForLimitedTime_(eQ, 'endDate', 1500, 300);
+    hydrateTotalWorkersForLimitedTime_(nQ, 1500, 300);
+
+    setTimeout(() => refreshAllSourceValues_(sQ, eQ, nQ), 700);
+  });
+
+  JFCustomWidget.subscribe('submit', function () {
+    const es = errors();
+
+    JFCustomWidget.sendSubmit({
+      valid: es.length === 0,
+      value: JSON.stringify(serialize())
+    });
+  });
+})();
+</script>
 </body>
 </html>
