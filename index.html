@@ -87,6 +87,7 @@
     };
 
     let boundsTimer = null;
+    let pendingBounds = {};
     let lastSentValue = '';
 
     const toQID = (raw) => {
@@ -460,9 +461,17 @@ function readManyById(ids, cb, dateIds = []) {
     }
 
     function scheduleBoundsUpdate(partial) {
+      pendingBounds = {
+        ...pendingBounds,
+        ...partial
+      };
+
       clearTimeout(boundsTimer);
+
       boundsTimer = setTimeout(() => {
-        setBounds(partial);
+        const update = pendingBounds;
+        pendingBounds = {};
+        setBounds(update);
       }, 150);
     }
 
