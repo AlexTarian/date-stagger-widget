@@ -129,6 +129,30 @@
       return Number.isNaN(n) ? undefined : n;
     }
 
+    function bindVisibilityTrigger_(triggerQid, sQ, eQ, nQ) {
+      if (!triggerQid || typeof JFCustomWidget.listenFromField !== 'function') return;
+
+      const candidates = [
+        `input_${triggerQid}`,
+        String(triggerQid),
+        `q${triggerQid}`
+      ];
+
+      const refresh = () => {
+        setTimeout(() => {
+          hydrateAllFieldsForLimitedTime_(sQ, eQ, nQ, 1500, 250);
+        }, 250);
+      };
+
+      candidates.forEach(candidate => {
+        ['change', 'click', 'keyup', 'blur'].forEach(eventName => {
+          try {
+            JFCustomWidget.listenFromField(candidate, eventName, refresh);
+          } catch (_) {}
+        });
+      });
+    }
+
     function extractValue(payload) {
       if (payload == null) return '';
 
@@ -646,6 +670,8 @@ function hydrateTotalWorkersForLimitedTime_(qid, durationMs = 2000, intervalMs =
       const sQ = toQID(JFCustomWidget.getWidgetSetting('startFieldId'));
       const eQ = toQID(JFCustomWidget.getWidgetSetting('endFieldId'));
       const nQ = toQID(JFCustomWidget.getWidgetSetting('totalWorkersFieldId'));
+      const visibilityQ = toQID(JFCustomWidget.getWidgetSetting('visibilityTriggerFieldId'));
+      bindVisibilityTrigger_(visibilityQ, sQ, eQ, nQ);
 
       const ids = [sQ, eQ, nQ].filter(Boolean);
 
