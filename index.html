@@ -9,7 +9,16 @@
     :root { --r:12px; --b:1px solid #e5e7eb; --pad:14px; --font: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; }
     *{box-sizing:border-box}
     body{margin:0;padding:var(--pad);background:#fafafa;font:14px var(--font);color:#111}
-    .card{max-width:760px;margin:0 auto;background:#fff;border:var(--b);border-radius:var(--r);box-shadow:0 6px 20px rgba(0,0,0,.06);overflow:hidden}
+    .card {
+      width: 100%;
+      max-width: none;
+      margin: 0;
+      background: #fff;
+      border: var(--b);
+      border-radius: var(--r);
+      box-shadow: 0 6px 20px rgba(0,0,0,.06);
+      overflow: hidden;
+    }
     header{display:flex;justify-content:space-between;align-items:center;padding:10px var(--pad);background:#fbfbfc;border-bottom:var(--b)}
     h1{font-size:15px;margin:0;font-weight:600}
     .meta{font-size:12px;color:#6b7280}
@@ -176,7 +185,6 @@ function readManyById(ids, cb, dateIds = []) {
 
   try {
     JFCustomWidget.getFieldsValueById(cleanIds, (res) => {
-      console.log('readManyById response:', res);
 
       const map = {};
 
@@ -213,7 +221,6 @@ function readManyById(ids, cb, dateIds = []) {
         });
       }
 
-      console.log('readManyById map:', map);
       cb(map);
     });
   } catch (err) {
@@ -539,13 +546,6 @@ function readManyById(ids, cb, dateIds = []) {
     const value = extractValue(payload);
     const n = Number(value);
 
-    console.log('totalWorkers listener payload:', {
-      qid,
-      payload,
-      value,
-      n
-    });
-
     if (!Number.isNaN(n)) {
       scheduleBoundsUpdate({ totalWorkers: n });
     }
@@ -570,12 +570,6 @@ function hydrateTotalWorkersForLimitedTime_(qid, durationMs = 2000, intervalMs =
     readByIdOnce(qid, value => {
       const cleaned = clean(value);
       const n = Number(cleaned);
-
-      console.log('totalWorkers hydrate:', {
-        qid,
-        cleaned,
-        n
-      });
 
       if (cleaned !== '' && cleaned !== lastValue && !Number.isNaN(n)) {
         lastValue = cleaned;
@@ -674,9 +668,9 @@ function hydrateTotalWorkersForLimitedTime_(qid, durationMs = 2000, intervalMs =
       bindSourceField_(eQ, 'endDate');
       bindTotalWorkersField_(nQ);
 
-      hydrateFieldForLimitedTime_(sQ, 'startDate');
-      hydrateFieldForLimitedTime_(eQ, 'endDate');
-      hydrateTotalWorkersForLimitedTime_(nQ);
+      hydrateFieldForLimitedTime_(sQ, 'startDate', 1800, 300);
+      hydrateFieldForLimitedTime_(eQ, 'endDate', 1800, 300);
+      hydrateTotalWorkersForLimitedTime_(nQ, 1200, 300);
 
       setTimeout(() => {
         readManyById(ids, map => {
