@@ -43,7 +43,7 @@
 <body>
   <div class="card">
     <header>
-      <h1>Staggered Start Dates v6</h1>
+      <h1>Staggered Start Dates v7</h1>
       <div class="meta" id="meta">Start — End • 0 workers</div>
     </header>
 
@@ -165,6 +165,30 @@
     return '';
   }
 
+  function extractNumberFromData_(data, qid) {
+  if (!Array.isArray(data)) return '';
+
+  const id = String(qid);
+
+  const candidates = data.filter(r => {
+    const selector = String(r.selector || '');
+    return (
+      selector === id ||
+      selector === `input_${id}` ||
+      selector === `q${id}` ||
+      selector.includes(id)
+    );
+  });
+
+  for (const row of candidates) {
+    const value = extractValue(row.value);
+    const n = numberOrUndefined_(value);
+    if (n !== undefined) return String(n);
+  }
+
+  return '';
+}
+
   function extractDateFromData_(data, qid) {
     if (!Array.isArray(data)) return '';
 
@@ -240,67 +264,63 @@
     }
   }
 
-  function readManyById(ids, cb, dateIds = []) {
-    const cleanIds = ids.filter(Boolean).map(String);
-    const dateIdSet = new Set(dateIds.filter(Boolean).map(String));
+  function readManyById(ids, cb, dateIds = [], numberIds = []) {
+  const cleanIds = ids.filter(Boolean).map(String);
+  const dateIdSet = new Set(dateIds.filter(Boolean).map(String));
+  const numberIdSet = new Set(numberIds.filter(Boolean).map(String));
 
-    if (!cleanIds.length) return cb({});
+  if (!cleanIds.length) return cb({});
 
-    try {
-      JFCustomWidget.getFieldsValueById(cleanIds, (res) => {
-        const map = {};
+  try {
+    JFCustomWidget.getFieldsValueById(cleanIds, (res) => {
+      const map = {};
 
-        if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
-          cleanIds.forEach(id => {
-            if (dateIdSet.has(id)) {
-              const dateValue = extractDateFromData_(res.data, id);
-              if (dateValue) {
-                map[id] = dateValue;
-                return;
-              }
+      if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
+        cleanIds.forEach(id => {
+          if (dateIdSet.has(id)) {
+            const dateValue = extractDateFromData_(res.data, id);
+            if (dateValue) {
+              map[id] = dateValue;
+              return;
             }
+          }
 
-            const exact =
-              res.data.find(r => String(r.selector) === id) ||
-              res.data.find(r => String(r.selector) === `input_${id}`) ||
-              res.data.find(r => String(r.selector) === `q${id}`);
+          if (numberIdSet.has(id)) {
+            const numberValue = extractNumberFromData_(res.data, id);
+            if (numberValue) {
+              map[id] = numberValue;
+              return;
+            }
+          }
 
-            map[id] = extractValue(exact ? exact.value : '');
-          });
-        } else if (res && typeof res === 'object') {
-          cleanIds.forEach(id => {
-            map[id] = extractValue(
-              res[id] ||
-              res[`input_${id}`] ||
-              res[`q${id}`] ||
-              ''
-            );
-          });
-        }
+          const exact =
+            res.data.find(r => String(r.selector) === id) ||
+            res.data.find(r => String(r.selector) === `input_${id}`) ||
+            res.data.find(r => String(r.selector) === `q${id}`);
 
-        cb(map);
-      });
-    } catch (_) {
-      cb({});
-    }
+          console.log('getFieldsValueById response:', res);
+          console.log('Looking for worker qid:', nQ);
+
+          map[id] = extractValue(exact ? exact.value : '');
+        });
+      }
+
+      cb(map);
+    });
+  } catch (_) {
+    cb({});
   }
+}
 
   function refreshAllSourceValues_(sQ, eQ, nQ) {
-    readManyById([sQ, eQ, nQ].filter(Boolean), map => {
-      scheduleBoundsUpdate({
-        startDate: map[sQ] || undefined,
-        endDate: map[eQ] || undefined,
-        totalWorkers: numberOrUndefined_(map[String(nQ)])
-      });
-    }, [sQ, eQ]);
-
-    readByIdOnce(nQ, value => {
-      const n = numberOrUndefined_(value);
-      if (n !== undefined) {
-        scheduleBoundsUpdate({ totalWorkers: n });
-      }
+  readManyById([sQ, eQ, nQ].filter(Boolean), map => {
+    scheduleBoundsUpdate({
+      startDate: map[String(sQ)] || undefined,
+      endDate: map[String(eQ)] || undefined,
+      totalWorkers: numberOrUndefined_(map[String(nQ)])
     });
-  }
+  }, [sQ, eQ], [nQ]);
+}
 
   function hydrateTotalWorkersAfterReveal_(qid, durationMs = 3000, intervalMs = 250) {
   if (!qid) return;
