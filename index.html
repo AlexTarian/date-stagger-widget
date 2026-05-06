@@ -527,9 +527,11 @@
     const nextEnd =
       endDate !== undefined ? toISO(endDate) || '' : state.endDate;
 
+    const incomingWorkers = totalWorkers !== undefined ? Number(totalWorkers) : undefined;
+
     const nextWorkers =
-      totalWorkers !== undefined
-        ? Number(totalWorkers) || state.totalWorkers
+      incomingWorkers !== undefined && !Number.isNaN(incomingWorkers) && incomingWorkers > 0
+        ? incomingWorkers
         : state.totalWorkers;
 
     if (
@@ -543,7 +545,13 @@
     state.startDate = nextStart;
     state.endDate = nextEnd;
     state.totalWorkers = nextWorkers;
-    updateWorkerDisplay_();
+    
+    function updateWorkerDisplay_() {
+      $('totalAllowed').textContent = String(state.totalWorkers);
+      $('meta').textContent =
+        `${fromISOToNice(state.startDate) || 'Start'} — ${fromISOToNice(state.endDate) || 'End'} • ${state.totalWorkers} workers`;
+      $('addRow').disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
+    }
 
     console.log('setBounds applied:', {
       startDate: state.startDate,
