@@ -43,7 +43,7 @@
 <body>
   <div class="card">
     <header>
-      <h1>Staggered Start Dates v3</h1>
+      <h1>Staggered Start Dates v4</h1>
       <div class="meta" id="meta">Start — End • 0 workers</div>
     </header>
 
@@ -302,6 +302,33 @@
     });
   }
 
+  function hydrateTotalWorkersAfterReveal_(qid, durationMs = 3000, intervalMs = 250) {
+  if (!qid) return;
+
+  const started = Date.now();
+  let bestValue;
+
+  function tick() {
+    readByIdOnce(qid, value => {
+      const n = numberOrUndefined_(value);
+
+      if (n !== undefined && n > 0) {
+        bestValue = n;
+        scheduleBoundsUpdate({ totalWorkers: n });
+        return;
+      }
+
+      if (Date.now() - started < durationMs) {
+        setTimeout(tick, intervalMs);
+      } else if (bestValue !== undefined) {
+        scheduleBoundsUpdate({ totalWorkers: bestValue });
+      }
+    });
+  }
+
+  tick();
+}
+
   function bindVisibilityTrigger_(triggerQid, sQ, eQ, nQ) {
     if (!triggerQid || typeof JFCustomWidget.listenFromField !== 'function') return;
 
@@ -313,7 +340,11 @@
 
     const refresh = () => {
       [100, 400, 900, 1500].forEach(delay => {
-        setTimeout(() => refreshAllSourceValues_(sQ, eQ, nQ), delay);
+        setTimeout(() => {
+          refreshAllSourceValues_(sQ, eQ, nQ);
+          hydrateTotalWorkersAfterReveal_(nQ, 3000, 250);
+
+        }, delay);
       });
     };
 
@@ -497,7 +528,9 @@
       endDate !== undefined ? toISO(endDate) || '' : state.endDate;
 
     const nextWorkers =
-      totalWorkers !== undefined ? Number(totalWorkers) || 0 : state.totalWorkers;
+      totalWorkers !== undefined
+        ? Number(totalWorkers) || state.totalWorkers
+        : state.totalWorkers;
 
     if (
       nextStart === state.startDate &&
