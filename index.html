@@ -190,6 +190,23 @@
     return parts.input || parts.lite || '';
   }
 
+  function updateWorkerDisplay_() {
+    const totalAllowed = $('totalAllowed');
+    const meta = $('meta');
+    const addRow = $('addRow');
+
+    if (totalAllowed) totalAllowed.textContent = String(state.totalWorkers);
+
+    if (meta) {
+      meta.textContent =
+        `${fromISOToNice(state.startDate) || 'Start'} — ${fromISOToNice(state.endDate) || 'End'} • ${state.totalWorkers} workers`;
+    }
+
+    if (addRow) {
+      addRow.disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
+    }
+  }
+
   function readByIdOnce(qid, cb) {
     if (!qid) return cb('');
 
@@ -493,6 +510,13 @@
     state.startDate = nextStart;
     state.endDate = nextEnd;
     state.totalWorkers = nextWorkers;
+    updateWorkerDisplay_();
+
+    console.log('setBounds applied:', {
+      startDate: state.startDate,
+      endDate: state.endDate,
+      totalWorkers: state.totalWorkers
+    });
 
     ensureMinRows();
 
