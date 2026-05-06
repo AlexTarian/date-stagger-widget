@@ -43,8 +43,8 @@
 <body>
   <div class="card">
     <header>
-      <h1>Staggered Start Dates v7</h1>
-      <div class="meta" id="meta">Start — End • 0 workers</div>
+      <h1>Staggered Start Dates v9</h1>
+      <div class="meta" id="meta">Start — End • — workers</div>
     </header>
 
     <div class="content">
@@ -66,7 +66,7 @@
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
           <span class="pill">Total selected: <strong id="totalSelected">0</strong></span>
-          <span class="pill">Requested: <strong id="totalAllowed">0</strong></span>
+          <span class="pill">Requested: <strong id="totalAllowed">—</strong></span>
         </div>
       </div>
 
@@ -165,30 +165,6 @@
     return '';
   }
 
-  function extractNumberFromData_(data, qid) {
-  if (!Array.isArray(data)) return '';
-
-  const id = String(qid);
-
-  const candidates = data.filter(r => {
-    const selector = String(r.selector || '');
-    return (
-      selector === id ||
-      selector === `input_${id}` ||
-      selector === `q${id}` ||
-      selector.includes(id)
-    );
-  });
-
-  for (const row of candidates) {
-    const value = extractValue(row.value);
-    const n = numberOrUndefined_(value);
-    if (n !== undefined) return String(n);
-  }
-
-  return '';
-}
-
   function extractDateFromData_(data, qid) {
     if (!Array.isArray(data)) return '';
 
@@ -214,113 +190,120 @@
     return parts.input || parts.lite || '';
   }
 
-  function updateWorkerDisplay_() {
-    const totalAllowed = $('totalAllowed');
-    const meta = $('meta');
-    const addRow = $('addRow');
+  function getSelectorCandidates_(qid) {
+    const id = String(qid || '').trim().replace(/^#/, '');
+    const numeric = toQID(id);
 
-    if (totalAllowed) totalAllowed.textContent = String(state.totalWorkers);
+    return Array.from(new Set([
+      id,
+      numeric,
+      numeric ? `input_${numeric}` : '',
+      numeric ? `q${numeric}` : ''
+    ].filter(Boolean)));
+  }
 
-    if (meta) {
-      meta.textContent =
-        `${fromISOToNice(state.startDate) || 'Start'} — ${fromISOToNice(state.endDate) || 'End'} • ${state.totalWorkers} workers`;
+  function findValueInResponse_(res, qid) {
+    const candidates = getSelectorCandidates_(qid);
+
+    if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
+      for (const selector of candidates) {
+        const exact = res.data.find(r => String(r.selector) === selector);
+        if (exact) return extractValue(exact.value);
+      }
+
+      const numeric = toQID(qid);
+      if (numeric) {
+        const fuzzy = res.data.find(r => String(r.selector || '').includes(numeric));
+        if (fuzzy) return extractValue(fuzzy.value);
+      }
     }
 
-    if (addRow) {
-      addRow.disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
+    if (res && typeof res === 'object') {
+      for (const selector of candidates) {
+        if (res[selector] !== undefined) return extractValue(res[selector]);
+      }
+
+      return extractValue(res.data ?? '');
     }
+
+    return '';
   }
 
   function readByIdOnce(qid, cb) {
     if (!qid) return cb('');
 
-    const id = String(qid);
+    const selectors = getSelectorCandidates_(qid);
 
     try {
-      JFCustomWidget.getFieldsValueById([id], (res) => {
-        let value = '';
-
-        if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
-          const exact =
-            res.data.find(r => String(r.selector) === id) ||
-            res.data.find(r => String(r.selector) === `input_${id}`) ||
-            res.data.find(r => String(r.selector) === `q${id}`);
-
-          value = extractValue(exact ? exact.value : '');
-        } else if (res && typeof res === 'object') {
-          value = extractValue(
-            res[id] ||
-            res[`input_${id}`] ||
-            res[`q${id}`] ||
-            res.data ||
-            ''
-          );
-        }
-
-        cb(value);
+      JFCustomWidget.getFieldsValueById(selectors, (res) => {
+        cb(findValueInResponse_(res, qid));
       });
     } catch (_) {
       cb('');
     }
   }
 
-  function readManyById(ids, cb, dateIds = [], numberIds = []) {
-  const cleanIds = ids.filter(Boolean).map(String);
-  const dateIdSet = new Set(dateIds.filter(Boolean).map(String));
-  const numberIdSet = new Set(numberIds.filter(Boolean).map(String));
+  function readManyById(ids, cb, dateIds = []) {
+    const cleanIds = ids.filter(Boolean).map(String);
+    const dateIdSet = new Set(dateIds.filter(Boolean).map(String));
 
-  if (!cleanIds.length) return cb({});
+    if (!cleanIds.length) return cb({});
 
-  try {
-    JFCustomWidget.getFieldsValueById(cleanIds, (res) => {
-      const map = {};
+    try {
+      JFCustomWidget.getFieldsValueById(cleanIds, (res) => {
+        const map = {};
 
-      if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
-        cleanIds.forEach(id => {
-          if (dateIdSet.has(id)) {
-            const dateValue = extractDateFromData_(res.data, id);
-            if (dateValue) {
-              map[id] = dateValue;
-              return;
+        if (res && res.type === 'event:receiver' && Array.isArray(res.data)) {
+          cleanIds.forEach(id => {
+            if (dateIdSet.has(id)) {
+              const dateValue = extractDateFromData_(res.data, id);
+              if (dateValue) {
+                map[id] = dateValue;
+                return;
+              }
             }
-          }
 
-          if (numberIdSet.has(id)) {
-            const numberValue = extractNumberFromData_(res.data, id);
-            if (numberValue) {
-              map[id] = numberValue;
-              return;
-            }
-          }
+            const exact =
+              res.data.find(r => String(r.selector) === id) ||
+              res.data.find(r => String(r.selector) === `input_${id}`) ||
+              res.data.find(r => String(r.selector) === `q${id}`);
 
-          const exact =
-            res.data.find(r => String(r.selector) === id) ||
-            res.data.find(r => String(r.selector) === `input_${id}`) ||
-            res.data.find(r => String(r.selector) === `q${id}`);
+            map[id] = extractValue(exact ? exact.value : '');
+          });
+        } else if (res && typeof res === 'object') {
+          cleanIds.forEach(id => {
+            map[id] = extractValue(
+              res[id] ||
+              res[`input_${id}`] ||
+              res[`q${id}`] ||
+              ''
+            );
+          });
+        }
 
-          console.log('getFieldsValueById response:', res);
-          console.log('Looking for worker qid:', nQ);
-
-          map[id] = extractValue(exact ? exact.value : '');
-        });
-      }
-
-      cb(map);
-    });
-  } catch (_) {
-    cb({});
+        cb(map);
+      });
+    } catch (_) {
+      cb({});
+    }
   }
-}
 
   function refreshAllSourceValues_(sQ, eQ, nQ) {
-  readManyById([sQ, eQ, nQ].filter(Boolean), map => {
-    scheduleBoundsUpdate({
-      startDate: map[String(sQ)] || undefined,
-      endDate: map[String(eQ)] || undefined,
-      totalWorkers: numberOrUndefined_(map[String(nQ)])
+    readManyById([sQ, eQ, nQ].filter(Boolean), map => {
+      scheduleBoundsUpdate({
+        startDate: map[sQ] || undefined,
+        endDate: map[eQ] || undefined,
+        totalWorkers: numberOrUndefined_(map[nQ])
+      });
+    }, [sQ, eQ]);
+
+    readByIdOnce(nQ, value => {
+      const n = numberOrUndefined_(value);
+      if (n !== undefined) {
+        scheduleBoundsUpdate({ totalWorkers: n });
+      }
     });
-  }, [sQ, eQ], [nQ]);
-}
+  }
 
   function hydrateTotalWorkersAfterReveal_(qid, durationMs = 3000, intervalMs = 250) {
   if (!qid) return;
@@ -362,7 +345,7 @@
       [100, 400, 900, 1500].forEach(delay => {
         setTimeout(() => {
           refreshAllSourceValues_(sQ, eQ, nQ);
-          hydrateTotalWorkersAfterReveal_(nQ, 8000, 250);
+          hydrateTotalWorkersAfterReveal_(nQ, 3000, 250);
 
         }, delay);
       });
@@ -427,8 +410,10 @@
     const rows = $('rows');
     rows.innerHTML = '';
 
+    const workerLabel = state.totalWorkers == null ? '—' : state.totalWorkers;
+
     $('meta').textContent =
-      `${fromISOToNice(state.startDate) || 'Start'} — ${fromISOToNice(state.endDate) || 'End'} • ${state.totalWorkers} workers`;
+      `${fromISOToNice(state.startDate) || 'Start'} — ${fromISOToNice(state.endDate) || 'End'} • ${workerLabel} workers`;
 
     state.values.forEach((row, idx) => {
       const tr = document.createElement('tr');
@@ -475,17 +460,24 @@
       inpNum.addEventListener('input', () => {
         const current = Number(row.count) || 0;
         const totalBefore = sum() - current;
-        const remaining = Math.max(0, (Number(state.totalWorkers) || 0) - totalBefore);
+        const remaining =
+          state.totalWorkers == null
+            ? Infinity
+            : Math.max(0, Number(state.totalWorkers) - totalBefore);
 
         let v = Math.max(0, Math.floor(Number(inpNum.value || 0)));
-        if (state.totalWorkers > 0) v = Math.min(v, remaining);
+        if (state.totalWorkers != null && state.totalWorkers > 0) v = Math.min(v, remaining);
 
         row.count = v;
         inpNum.value = String(v);
         inpNum.classList.toggle('zero', v === 0);
 
         $('totalSelected').textContent = String(sum());
-        $('addRow').disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
+        $('addRow').disabled = (
+          state.totalWorkers != null &&
+          state.totalWorkers > 0 &&
+          sum() >= state.totalWorkers
+        );
 
         validateAndSend();
       });
@@ -515,8 +507,12 @@
     });
 
     $('totalSelected').textContent = String(sum());
-    $('totalAllowed').textContent = String(state.totalWorkers);
-    $('addRow').disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
+    $('totalAllowed').textContent = String(workerLabel);
+    $('addRow').disabled = (
+      state.totalWorkers != null &&
+      state.totalWorkers > 0 &&
+      sum() >= state.totalWorkers
+    );
   }
 
   function addRow(prefill = {}) {
@@ -566,14 +562,9 @@
     state.endDate = nextEnd;
     state.totalWorkers = nextWorkers;
     
-    function updateWorkerDisplay_() {
-      $('totalAllowed').textContent = String(state.totalWorkers);
-      $('meta').textContent =
-        `${fromISOToNice(state.startDate) || 'Start'} — ${fromISOToNice(state.endDate) || 'End'} • ${state.totalWorkers} workers`;
-      $('addRow').disabled = (state.totalWorkers > 0 && sum() >= state.totalWorkers);
-    }
-
     console.log('setBounds applied:', {
+      incomingWorkersRaw: totalWorkers,
+      incomingWorkersParsed: incomingWorkers,
       startDate: state.startDate,
       endDate: state.endDate,
       totalWorkers: state.totalWorkers
@@ -648,7 +639,9 @@
 
     const total = sum();
 
-    if (state.totalWorkers > 0 && total !== state.totalWorkers) {
+    if (state.totalWorkers == null) {
+      es.push('Requested worker count is still loading.');
+    } else if (state.totalWorkers > 0 && total !== state.totalWorkers) {
       es.push(`Total selected (${total}) must equal requested (${state.totalWorkers}).`);
     }
 
@@ -668,7 +661,7 @@
 
   function validateAndSend() {
     const es = errors();
-    const serialized = JSON.stringify(serialize());
+    const serialized = JSON.stringify({ workers: state.totalWorkers, arrivals: serialize() });
 
     $('status').innerHTML = es.length
       ? `<span class="error">${es[0]}</span>`
@@ -679,7 +672,7 @@
 
     try {
       JFCustomWidget.sendData({
-        value: serialized,
+        value: JSON.stringify(serialize()),
         valid: es.length === 0,
         message: es[0] || ''
       });
@@ -716,32 +709,23 @@
   function bindTotalWorkersField_(qid) {
     if (!qid || typeof JFCustomWidget.listenFromField !== 'function') return;
 
-      const candidates = [
+    const candidates = [
       `input_${qid}`,
       String(qid),
       `q${qid}`
     ];
 
-    const refreshWorkers = (payload) => {
-      const fromPayload = numberOrUndefined_(extractValue(payload));
-
-      if (fromPayload !== undefined && fromPayload > 0) {
-        scheduleBoundsUpdate({ totalWorkers: fromPayload });
-        return;
+    const handler = (payload) => {
+      const n = numberOrUndefined_(extractValue(payload));
+      if (n !== undefined) {
+        scheduleBoundsUpdate({ totalWorkers: n });
       }
-
-      readByIdOnce(qid, value => {
-        const n = numberOrUndefined_(value);
-        if (n !== undefined && n > 0) {
-          scheduleBoundsUpdate({ totalWorkers: n });
-        }
-      });
     };
 
     candidates.forEach(candidate => {
       ['ready', 'change', 'keyup', 'input', 'blur'].forEach(eventName => {
         try {
-          JFCustomWidget.listenFromField(candidate, eventName, refreshWorkers);
+          JFCustomWidget.listenFromField(candidate, eventName, handler);
         } catch (_) {}
       });
     });
@@ -796,7 +780,7 @@
   }
 
   $('addRow').addEventListener('click', () => {
-    const atCap = state.totalWorkers > 0 && sum() >= state.totalWorkers;
+    const atCap = state.totalWorkers != null && state.totalWorkers > 0 && sum() >= state.totalWorkers;
     if (atCap) return;
     addRow();
   });
@@ -824,7 +808,9 @@
     hydrateFieldForLimitedTime_(eQ, 'endDate', 1500, 300);
     hydrateTotalWorkersForLimitedTime_(nQ, 1500, 300);
 
-    setTimeout(() => refreshAllSourceValues_(sQ, eQ, nQ), 700);
+    [700, 1500, 3000, 5000, 8000].forEach(delay => {
+      setTimeout(() => refreshAllSourceValues_(sQ, eQ, nQ), delay);
+    });
   });
 
   JFCustomWidget.subscribe('submit', function () {
