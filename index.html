@@ -290,7 +290,7 @@
       scheduleBoundsUpdate({
         startDate: map[sQ] || undefined,
         endDate: map[eQ] || undefined,
-        totalWorkers: numberOrUndefined_(map[nQ])
+        totalWorkers: numberOrUndefined_(map[String(nQ)])
       });
     }, [sQ, eQ]);
 
@@ -342,7 +342,7 @@
       [100, 400, 900, 1500].forEach(delay => {
         setTimeout(() => {
           refreshAllSourceValues_(sQ, eQ, nQ);
-          hydrateTotalWorkersAfterReveal_(nQ, 3000, 250);
+          hydrateTotalWorkersAfterReveal_(nQ, 8000, 250);
 
         }, delay);
       });
@@ -696,23 +696,32 @@
   function bindTotalWorkersField_(qid) {
     if (!qid || typeof JFCustomWidget.listenFromField !== 'function') return;
 
-    const candidates = [
+      const candidates = [
       `input_${qid}`,
       String(qid),
       `q${qid}`
     ];
 
-    const handler = (payload) => {
-      const n = numberOrUndefined_(extractValue(payload));
-      if (n !== undefined) {
-        scheduleBoundsUpdate({ totalWorkers: n });
+    const refreshWorkers = (payload) => {
+      const fromPayload = numberOrUndefined_(extractValue(payload));
+
+      if (fromPayload !== undefined && fromPayload > 0) {
+        scheduleBoundsUpdate({ totalWorkers: fromPayload });
+        return;
       }
+
+      readByIdOnce(qid, value => {
+        const n = numberOrUndefined_(value);
+        if (n !== undefined && n > 0) {
+          scheduleBoundsUpdate({ totalWorkers: n });
+        }
+      });
     };
 
     candidates.forEach(candidate => {
       ['ready', 'change', 'keyup', 'input', 'blur'].forEach(eventName => {
         try {
-          JFCustomWidget.listenFromField(candidate, eventName, handler);
+          JFCustomWidget.listenFromField(candidate, eventName, refreshWorkers);
         } catch (_) {}
       });
     });
