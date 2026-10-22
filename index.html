@@ -683,15 +683,19 @@
     return lines.join('\n');
   }
 
-  function updateArrivalSummaryField(isValid) {
-    const value = isValid ? formatArrivalSummary() : '';
+  function updateArrivalSummaryField() {
+    const value = formatArrivalSummary();
+
+    console.log('[ARRIVAL SUMMARY] Sending:', value);
 
     try {
       JFCustomWidget.setFieldsValueByLabel({
         'Staggered Arrival Summary': value
       });
+
+      console.log('[ARRIVAL SUMMARY] Setter called successfully.');
     } catch (error) {
-      console.error('Could not update arrival summary field:', error);
+      console.error('[ARRIVAL SUMMARY] Setter failed:', error);
     }
   }
 
@@ -740,25 +744,6 @@
 
     bindFieldListeners(sourceIds.visibility, refresh);
   }
-
-  function formatArrivalSummary() {
-  const lines = state.values.map((row) => {
-    const date = row.date
-      ? new Date(`${row.date}T12:00:00Z`).toLocaleDateString('en-US', {
-          timeZone: 'UTC',
-          month: 'long',
-          day: 'numeric',
-          year: 'numeric'
-        })
-      : 'Date not selected';
-
-    const count = Number(row.count) || 0;
-    return `${date} — ${count} ${count === 1 ? 'worker' : 'workers'}`;
-  });
-
-  lines.push('', `Total: ${sum()} workers`);
-  return lines.join('\n');
-}
 
   function init() {
     sourceIds.start = toQID(JFCustomWidget.getWidgetSetting('startFieldId'));
