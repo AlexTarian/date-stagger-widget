@@ -682,18 +682,16 @@
     lines.push('', `Total: ${sum()} workers`);
     return lines.join('\n');
   }
-
+  
   function updateArrivalSummaryField() {
     const value = formatArrivalSummary();
 
     console.log('[ARRIVAL SUMMARY] Sending:', value);
 
     try {
-      JFCustomWidget.setFieldsValueByLabel({
-        'Staggered Arrival Summary': value
-      });
-
-      console.log('[ARRIVAL SUMMARY] Setter called successfully.');
+      JFCustomWidget.setFieldsValueByLabel([
+        { label: 'Staggered Arrival Summary', value }
+      ]);
     } catch (error) {
       console.error('[ARRIVAL SUMMARY] Setter failed:', error);
     }
